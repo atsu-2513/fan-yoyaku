@@ -1,0 +1,34 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>hair salon FAN | 予約管理</title>
+<link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div class="app">
+    <header class="header">
+      <h1>hair salon FAN 予約管理</h1>
+      <button id="refresh" class="btn btn--ghost">更新</button>
+    </header>
+
+    <table class="table">
+      <thead>
+        <tr>
+          <th>状態</th>
+          <th>日時</th>
+          <th>メニュー</th>
+          <th>お名前</th>
+          <th>電話番号</th>
+          <th>操作</th>
+        </tr>
+      </thead>
+      <tbody id="reservations-body"></tbody>
+    </table>
+    <p id="empty-message" class="empty-message" hidden>予約はまだありません。</p>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>

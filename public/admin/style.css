@@ -1,0 +1,81 @@
+:root {
+  --brand: #b8860b;
+  --ink: #2b2b2b;
+  --muted: #767676;
+  --border: #e3e0da;
+  --bg: #faf8f5;
+  --pending: #b8860b;
+  --confirmed: #2f7a3d;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  font-family: -apple-system, BlinkMacSystemFont, "Hiragino Sans", "Yu Gothic", sans-serif;
+  background: var(--bg);
+  color: var(--ink);
+}
+
+.app {
+  max-width: 900px;
+  margin: 0 auto;
+  padding: 24px 16px 48px;
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 20px;
+}
+.header h1 { font-size: 18px; margin: 0; }
+
+.btn {
+  padding: 8px 14px;
+  border-radius: 6px;
+  border: none;
+  background: var(--brand);
+  color: #fff;
+  font-size: 13px;
+  cursor: pointer;
+}
+.btn--ghost {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--ink);
+}
+.btn:disabled { opacity: 0.5; cursor: default; }
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  background: #fff;
+  font-size: 14px;
+}
+.table th, .table td {
+  border-bottom: 1px solid var(--border);
+  padding: 10px 8px;
+  text-align: left;
+}
+.table th {
+  color: var(--muted);
+  font-weight: normal;
+  font-size: 12px;
+}
+
+.badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 12px;
+  color: #fff;
+}
+.badge--pending { background: var(--pending); }
+.badge--confirmed { background: var(--confirmed); }
+
+.empty-message {
+  text-align: center;
+  color: var(--muted);
+  margin-top: 40px;
+}

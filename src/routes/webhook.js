@@ -34,7 +34,7 @@ async function handleEvent(event) {
       return;
     }
 
-    const token = createBookingToken(userId);
+    const token = await createBookingToken(userId);
     const url = `${process.env.BASE_URL}/booking/?token=${token}`;
 
     await client.replyMessage({

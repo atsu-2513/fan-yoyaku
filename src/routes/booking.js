@@ -12,21 +12,21 @@ const { pushText } = require('../line');
 const router = express.Router();
 
 // トークンが有効か確認（予約ページ読み込み時に使用）
-router.get('/api/booking/token/:token', (req, res) => {
-  const row = getValidToken(req.params.token);
+router.get('/api/booking/token/:token', async (req, res) => {
+  const row = await getValidToken(req.params.token);
   if (!row) return res.status(400).json({ ok: false, error: 'invalid_or_expired_token' });
   res.json({ ok: true, menus: MENUS });
 });
 
 // 指定日の空き状況を返す
-router.get('/api/booking/availability', (req, res) => {
+router.get('/api/booking/availability', async (req, res) => {
   const { token, date } = req.query;
-  const row = getValidToken(token);
+  const row = await getValidToken(token);
   if (!row) return res.status(400).json({ ok: false, error: 'invalid_or_expired_token' });
   if (!date) return res.status(400).json({ ok: false, error: 'date_required' });
 
   const allSlots = slotsForDate(date);
-  const taken = new Set(getTakenSlots(date));
+  const taken = new Set(await getTakenSlots(date));
   const available = allSlots.filter((t) => !taken.has(t));
   res.json({ ok: true, date, businessDay: isBusinessDay(date), slots: available });
 });
@@ -35,7 +35,7 @@ router.get('/api/booking/availability', (req, res) => {
 router.post('/api/booking', async (req, res) => {
   const { token, date, time, menu, name, phone } = req.body || {};
 
-  const row = getValidToken(token);
+  const row = await getValidToken(token);
   if (!row) return res.status(400).json({ ok: false, error: 'invalid_or_expired_token' });
 
   if (!date || !time || !menu || !name || !phone) {
@@ -51,11 +51,11 @@ router.post('/api/booking', async (req, res) => {
   if (!phonePattern.test(phone)) {
     return res.status(400).json({ ok: false, error: 'invalid_phone' });
   }
-  if (isSlotTaken(date, time)) {
+  if (await isSlotTaken(date, time)) {
     return res.status(409).json({ ok: false, error: 'slot_taken' });
   }
 
-  const reservation = createReservation({
+  const reservation = await createReservation({
     lineUserId: row.line_user_id,
     date,
     time,
@@ -63,7 +63,7 @@ router.post('/api/booking', async (req, res) => {
     name: String(name).trim(),
     phone: String(phone).trim(),
   });
-  markTokenUsed(token);
+  await markTokenUsed(token);
 
   try {
     await pushText(

@@ -41,10 +41,13 @@ BASE_URL=https://<公開URL>          # 予約ページ・WebhookのベースURL
 ADMIN_USER=owner                     # 管理画面ログインID
 ADMIN_PASS=（強力なパスワードに変更）
 PORT=3000
+TURSO_DATABASE_URL=                  # 本番(Vercel)では必須。ローカルは未設定でOK
+TURSO_AUTH_TOKEN=                    # 本番(Vercel)では必須。ローカルは未設定でOK
 ```
 
 ローカルで動作確認する場合は `ngrok http 3000` などでトンネルを作り、その公開URLを
 `BASE_URL` とLINEのWebhook URLの両方に設定してください。
+DBはローカルでは `TURSO_DATABASE_URL` 未設定時に自動で `data/fan-yoyaku.db`（SQLite互換のファイルDB）が使われます。
 
 ### 4. 起動
 
@@ -62,11 +65,28 @@ npm start
 
 ## データ
 
-予約データは SQLite（`data/fan-yoyaku.db`）に保存されます。バックアップ等が必要な場合はこのファイルを対象にしてください。
+予約データは [Turso](https://turso.tech/)（libSQL / SQLite互換のマネージドDB）に保存されます。
+Vercelなどのサーバーレス環境はファイルシステムが永続化されないため、本番では
+`TURSO_DATABASE_URL` / `TURSO_AUTH_TOKEN` を必ず設定してください。ローカル開発では
+これらを未設定にすると `data/fan-yoyaku.db` にファイルとして保存されます。
+
+## Vercelへのデプロイ
+
+1. [Turso](https://turso.tech/) でDBを作成し、DB URLと認証トークンを取得
+   ```bash
+   turso db create fan-yoyaku
+   turso db show fan-yoyaku --url
+   turso db tokens create fan-yoyaku
+   ```
+2. Vercelプロジェクトの環境変数に `LINE_CHANNEL_ACCESS_TOKEN` / `LINE_CHANNEL_SECRET` /
+   `BASE_URL`（VercelのURL）/ `ADMIN_USER` / `ADMIN_PASS` / `TURSO_DATABASE_URL` /
+   `TURSO_AUTH_TOKEN` を設定
+3. `vercel --prod` などでデプロイ（`api/index.js` がサーバーレス関数のエントリーポイント）
+4. LINE DevelopersのWebhook URLを `https://<VercelのURL>/webhook` に更新
 
 ## 技術構成
 
-- Node.js / Express
+- Node.js / Express（`api/index.js` からVercel Functionsとして実行）
 - `@line/bot-sdk`（Messaging API連携・Webhook署名検証）
-- `better-sqlite3`（予約・予約用トークンの保存）
+- `@libsql/client`（Turso / libSQL、予約・予約用トークンの保存）
 - 予約ページ・管理画面はビルド不要のシンプルなHTML/CSS/JS

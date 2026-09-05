@@ -14,8 +14,8 @@ const auth = basicAuth({
 
 router.use('/api/admin', auth);
 
-router.get('/api/admin/reservations', (req, res) => {
-  const reservations = listReservations().map((r) => ({
+router.get('/api/admin/reservations', async (req, res) => {
+  const reservations = (await listReservations()).map((r) => ({
     ...r,
     menuLabel: menuLabel(r.menu),
   }));
@@ -24,13 +24,13 @@ router.get('/api/admin/reservations', (req, res) => {
 
 router.post('/api/admin/reservations/:id/confirm', async (req, res) => {
   const id = Number(req.params.id);
-  const existing = getReservation(id);
+  const existing = await getReservation(id);
   if (!existing) return res.status(404).json({ ok: false, error: 'not_found' });
   if (existing.status === 'confirmed') {
     return res.json({ ok: true, reservation: existing });
   }
 
-  const reservation = confirmReservation(id);
+  const reservation = await confirmReservation(id);
 
   try {
     await pushText(

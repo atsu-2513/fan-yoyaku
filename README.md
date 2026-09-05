@@ -81,12 +81,16 @@ Vercelなどのサーバーレス環境はファイルシステムが永続化�
 2. Vercelプロジェクトの環境変数に `LINE_CHANNEL_ACCESS_TOKEN` / `LINE_CHANNEL_SECRET` /
    `BASE_URL`（VercelのURL）/ `ADMIN_USER` / `ADMIN_PASS` / `TURSO_DATABASE_URL` /
    `TURSO_AUTH_TOKEN` を設定
-3. `vercel --prod` などでデプロイ（`api/index.js` がサーバーレス関数のエントリーポイント）
+3. `vercel --prod` などでデプロイ（`src/server.js` の `app.listen()` をVercelが検出し、
+   Node.jsサーバーとしてそのままキャプチャする。`api/index.js`経由のVercel Functionsにすると
+   `req.body`等の自動ヘルパーがリクエストの生ストリームを消費してしまい、LINEのWebhook署名検証が
+   `SignatureValidationFailed`で失敗するため、あえて`api/`ディレクトリは使わない）
 4. LINE DevelopersのWebhook URLを `https://<VercelのURL>/webhook` に更新
 
 ## 技術構成
 
-- Node.js / Express（`api/index.js` からVercel Functionsとして実行）
+- Node.js / Express（`src/server.js` をVercelがキャプチャ済みNode.jsサーバーとして実行。
+  ヘルパー付きVercel Functionsを避け、生のリクエストボディをLINEの署名検証に渡せるようにしている）
 - `@line/bot-sdk`（Messaging API連携・Webhook署名検証）
 - `@libsql/client`（Turso / libSQL、予約・予約用トークンの保存）
 - 予約ページ・管理画面はビルド不要のシンプルなHTML/CSS/JS

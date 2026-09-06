@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>hair salon FAN | スタッフログイン</title>
+<link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div class="app">
+    <div class="card login-card">
+      <header class="header" style="display:block; text-align:center; padding-top:0;">
+        <h1>hair salon FAN</h1>
+        <p>スタッフログイン</p>
+      </header>
+      <form id="login-form">
+        <label>
+          ID
+          <input type="text" name="username" required autocomplete="username" />
+        </label>
+        <label>
+          パスワード
+          <input type="password" name="password" required autocomplete="current-password" />
+        </label>
+        <button type="submit" class="btn">ログイン</button>
+      </form>
+      <p id="login-error" class="message message--error" hidden style="margin-top:14px;"></p>
+    </div>
+  </div>
+  <script src="login.js"></script>
+</body>
+</html>

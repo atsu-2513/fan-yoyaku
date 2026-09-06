@@ -32,6 +32,9 @@
     const dateTd = document.createElement('td');
     dateTd.textContent = `${r.date} ${r.time}`;
 
+    const staffTd = document.createElement('td');
+    staffTd.textContent = r.staff_name || '(未設定)';
+
     const menuTd = document.createElement('td');
     menuTd.textContent = r.menuLabel;
 
@@ -52,7 +55,7 @@
       actionTd.appendChild(btn);
     }
 
-    tr.append(statusTd, dateTd, menuTd, nameTd, phoneTd, actionTd);
+    tr.append(statusTd, dateTd, staffTd, menuTd, nameTd, phoneTd, actionTd);
     return tr;
   }
 

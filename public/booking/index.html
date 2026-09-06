@@ -22,13 +22,20 @@
 
     <div id="form-screen" class="screen" hidden>
       <ol class="steps">
-        <li id="step-indicator-1" class="steps__item is-active">1. 日時</li>
-        <li id="step-indicator-2" class="steps__item">2. メニュー</li>
-        <li id="step-indicator-3" class="steps__item">3. お客様情報</li>
+        <li id="step-indicator-1" class="steps__item is-active">1. 担当者</li>
+        <li id="step-indicator-2" class="steps__item">2. 日時</li>
+        <li id="step-indicator-3" class="steps__item">3. メニュー</li>
+        <li id="step-indicator-4" class="steps__item">4. お客様情報</li>
       </ol>
 
-      <!-- Step 1: 日時選択 -->
+      <!-- Step 1: 担当者選択 -->
       <section id="step-1" class="step is-active">
+        <h3>指名するスタッフを選んでください</h3>
+        <div id="staff-options" class="menu-options"></div>
+      </section>
+
+      <!-- Step 2: 日時選択 -->
+      <section id="step-2" class="step">
         <div class="calendar">
           <div class="calendar__nav">
             <button type="button" id="prev-month" class="btn btn--ghost">＜</button>
@@ -45,20 +52,23 @@
           <h3 id="selected-date-label"></h3>
           <div id="time-slots" class="time-slots"></div>
         </div>
-      </section>
-
-      <!-- Step 2: メニュー選択 -->
-      <section id="step-2" class="step">
-        <h3>メニューを選択してください</h3>
-        <div id="menu-options" class="menu-options"></div>
         <div class="step-actions">
           <button type="button" class="btn btn--ghost" data-back="1">戻る</button>
-          <button type="button" id="to-step-3" class="btn" disabled>次へ</button>
         </div>
       </section>
 
-      <!-- Step 3: お客様情報 -->
+      <!-- Step 3: メニュー選択 -->
       <section id="step-3" class="step">
+        <h3>メニューを選択してください</h3>
+        <div id="menu-options" class="menu-options"></div>
+        <div class="step-actions">
+          <button type="button" class="btn btn--ghost" data-back="2">戻る</button>
+          <button type="button" id="to-step-4" class="btn" disabled>次へ</button>
+        </div>
+      </section>
+
+      <!-- Step 4: お客様情報 -->
+      <section id="step-4" class="step">
         <h3>お客様情報を入力してください</h3>
         <div class="summary" id="booking-summary"></div>
         <form id="customer-form">
@@ -71,7 +81,7 @@
             <input type="tel" name="phone" required autocomplete="tel" placeholder="09012345678" />
           </label>
           <div class="step-actions">
-            <button type="button" class="btn btn--ghost" data-back="2">戻る</button>
+            <button type="button" class="btn btn--ghost" data-back="3">戻る</button>
             <button type="submit" class="btn">予約する</button>
           </div>
         </form>

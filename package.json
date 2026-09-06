@@ -6,7 +6,8 @@
   "private": true,
   "scripts": {
     "start": "node src/server.js",
-    "dev": "node --watch src/server.js"
+    "dev": "node --watch src/server.js",
+    "create-staff": "node scripts/create-staff.js"
   },
   "dependencies": {
     "@libsql/client": "^0.14.0",

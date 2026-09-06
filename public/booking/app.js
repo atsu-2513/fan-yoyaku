@@ -9,7 +9,9 @@
   const state = {
     token,
     menus: [],
+    staff: [],
     viewMonth: new Date(new Date().getFullYear(), new Date().getMonth(), 1),
+    selectedStaff: null,
     selectedDate: null, // 'YYYY-MM-DD'
     selectedTime: null,
     selectedMenu: null,
@@ -43,6 +45,8 @@
         return;
       }
       state.menus = data.menus || [];
+      state.staff = data.staff || [];
+      renderStaffOptions();
       renderMenuOptions();
       renderCalendar();
       showScreen(formScreen);
@@ -51,7 +55,33 @@
     }
   }
 
-  // ---------- Step 1: Calendar ----------
+  // ---------- Step 1: 担当者 ----------
+  function renderStaffOptions() {
+    const wrap = document.getElementById('staff-options');
+    wrap.innerHTML = '';
+    if (!state.staff.length) {
+      wrap.innerHTML = '<p class="time-empty">現在指名可能なスタッフがいません。お手数ですが店舗にお問い合わせください。</p>';
+      return;
+    }
+    state.staff.forEach((staff) => {
+      const el = document.createElement('div');
+      el.className = 'menu-option';
+      el.textContent = staff.name;
+      el.addEventListener('click', () => {
+        state.selectedStaff = staff;
+        state.selectedDate = null;
+        state.selectedTime = null;
+        document.querySelectorAll('#staff-options .menu-option').forEach((o) => o.classList.remove('is-selected'));
+        el.classList.add('is-selected');
+        document.getElementById('time-section').hidden = true;
+        renderCalendar();
+        goToStep(2);
+      });
+      wrap.appendChild(el);
+    });
+  }
+
+  // ---------- Step 2: Calendar ----------
   function renderCalendar() {
     const grid = document.getElementById('calendar-grid');
     const label = document.getElementById('month-label');
@@ -94,6 +124,7 @@
   });
 
   async function selectDate(dateStr) {
+    if (!state.selectedStaff) return;
     state.selectedDate = dateStr;
     state.selectedTime = null;
     renderCalendar();
@@ -107,7 +138,9 @@
 
     try {
       const res = await fetch(
-        `/api/booking/availability?token=${encodeURIComponent(state.token)}&date=${encodeURIComponent(dateStr)}`
+        `/api/booking/availability?token=${encodeURIComponent(state.token)}&date=${encodeURIComponent(
+          dateStr
+        )}&staffId=${encodeURIComponent(state.selectedStaff.id)}`
       );
       const data = await res.json();
       if (!res.ok || !data.ok) {
@@ -119,7 +152,7 @@
         return;
       }
       if (!data.slots.length) {
-        slotsEl.innerHTML = '<p class="time-empty">この日は満枠です。</p>';
+        slotsEl.innerHTML = '<p class="time-empty">この日は空きがありません。</p>';
         return;
       }
       slotsEl.innerHTML = '';
@@ -132,7 +165,7 @@
           state.selectedTime = time;
           document.querySelectorAll('.slot-btn').forEach((b) => b.classList.remove('is-selected'));
           btn.classList.add('is-selected');
-          goToStep(2);
+          goToStep(3);
         });
         slotsEl.appendChild(btn);
       });
@@ -141,7 +174,7 @@
     }
   }
 
-  // ---------- Step 2: Menu ----------
+  // ---------- Step 3: Menu ----------
   function renderMenuOptions() {
     const wrap = document.getElementById('menu-options');
     wrap.innerHTML = '';
@@ -151,23 +184,23 @@
       el.textContent = menu.label;
       el.addEventListener('click', () => {
         state.selectedMenu = menu;
-        document.querySelectorAll('.menu-option').forEach((o) => o.classList.remove('is-selected'));
+        document.querySelectorAll('#menu-options .menu-option').forEach((o) => o.classList.remove('is-selected'));
         el.classList.add('is-selected');
-        document.getElementById('to-step-3').disabled = false;
+        document.getElementById('to-step-4').disabled = false;
       });
       wrap.appendChild(el);
     });
   }
 
-  document.getElementById('to-step-3').addEventListener('click', () => goToStep(3));
+  document.getElementById('to-step-4').addEventListener('click', () => goToStep(4));
 
   // ---------- Step navigation ----------
   function goToStep(n) {
-    [1, 2, 3].forEach((i) => {
+    [1, 2, 3, 4].forEach((i) => {
       document.getElementById(`step-${i}`).classList.toggle('is-active', i === n);
       document.getElementById(`step-indicator-${i}`).classList.toggle('is-active', i === n);
     });
-    if (n === 3) renderSummary();
+    if (n === 4) renderSummary();
   }
 
   document.querySelectorAll('[data-back]').forEach((btn) => {
@@ -177,12 +210,13 @@
   function renderSummary() {
     const el = document.getElementById('booking-summary');
     el.innerHTML = `
+      <div>担当: ${state.selectedStaff ? state.selectedStaff.name : ''}</div>
       <div>日時: ${state.selectedDate} ${state.selectedTime}</div>
       <div>メニュー: ${state.selectedMenu ? state.selectedMenu.label : ''}</div>
     `;
   }
 
-  // ---------- Step 3: Submit ----------
+  // ---------- Step 4: Submit ----------
   document.getElementById('customer-form').addEventListener('submit', async (e) => {
     e.preventDefault();
     const errorEl = document.getElementById('submit-error');
@@ -201,6 +235,7 @@
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           token: state.token,
+          staffId: state.selectedStaff ? state.selectedStaff.id : null,
           date: state.selectedDate,
           time: state.selectedTime,
           menu: state.selectedMenu ? state.selectedMenu.id : null,

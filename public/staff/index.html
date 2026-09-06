@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>hair salon FAN | スタッフ画面</title>
+<link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div class="app">
+    <header class="header">
+      <div>
+        <h1 id="staff-name">hair salon FAN</h1>
+        <p>スタッフ画面</p>
+      </div>
+      <button id="logout" class="btn btn--ghost">ログアウト</button>
+    </header>
+
+    <section class="card">
+      <h2>空き時間の設定</h2>
+      <div class="calendar">
+        <div class="calendar__nav">
+          <button type="button" id="prev-month" class="btn btn--ghost">＜</button>
+          <div id="month-label" class="calendar__label"></div>
+          <button type="button" id="next-month" class="btn btn--ghost">＞</button>
+        </div>
+        <div class="calendar__weekdays">
+          <span>日</span><span>月</span><span>火</span><span>水</span><span>木</span><span>金</span><span>土</span>
+        </div>
+        <div id="calendar-grid" class="calendar__grid"></div>
+      </div>
+      <div id="slot-section" hidden>
+        <h3 id="selected-date-label" style="font-size:14px;"></h3>
+        <p class="slot-hint">タップした時間がお客様の予約フォームに表示されます。もう一度タップすると非表示になります。</p>
+        <div id="slot-grid" class="slot-grid"></div>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>自分の予約一覧</h2>
+      <table class="table">
+        <thead>
+          <tr>
+            <th>状態</th>
+            <th>日時</th>
+            <th>メニュー</th>
+            <th>お名前</th>
+            <th>電話番号</th>
+            <th>操作</th>
+          </tr>
+        </thead>
+        <tbody id="reservations-body"></tbody>
+      </table>
+      <p id="empty-message" class="empty-message" hidden>予約はまだありません。</p>
+    </section>
+
+    <section class="card">
+      <h2>パスワード変更</h2>
+      <form id="password-form">
+        <label>
+          現在のパスワード
+          <input type="password" name="oldPassword" required autocomplete="current-password" />
+        </label>
+        <label>
+          新しいパスワード
+          <input type="password" name="newPassword" required autocomplete="new-password" minlength="4" />
+        </label>
+        <button type="submit" class="btn btn--ghost">変更する</button>
+      </form>
+      <p id="password-message" class="message" hidden style="margin-top:12px;"></p>
+    </section>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>

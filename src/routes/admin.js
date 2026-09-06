@@ -1,6 +1,6 @@
 const express = require('express');
 const basicAuth = require('express-basic-auth');
-const { listReservations, getReservation, confirmReservation } = require('../db');
+const { listReservationsWithStaff, getReservation, confirmReservation, listAllStaff, getStaffById } = require('../db');
 const { menuLabel } = require('../businessHours');
 const { pushText } = require('../line');
 
@@ -15,11 +15,15 @@ const auth = basicAuth({
 router.use('/api/admin', auth);
 
 router.get('/api/admin/reservations', async (req, res) => {
-  const reservations = (await listReservations()).map((r) => ({
+  const reservations = (await listReservationsWithStaff()).map((r) => ({
     ...r,
     menuLabel: menuLabel(r.menu),
   }));
   res.json({ ok: true, reservations });
+});
+
+router.get('/api/admin/staff', async (req, res) => {
+  res.json({ ok: true, staff: await listAllStaff() });
 });
 
 router.post('/api/admin/reservations/:id/confirm', async (req, res) => {
@@ -31,12 +35,14 @@ router.post('/api/admin/reservations/:id/confirm', async (req, res) => {
   }
 
   const reservation = await confirmReservation(id);
+  const staff = reservation.staff_id ? await getStaffById(reservation.staff_id) : null;
 
   try {
     await pushText(
       reservation.line_user_id,
       `${reservation.name}様\nご予約が確定しました。\n\n` +
         `日時: ${reservation.date} ${reservation.time}\n` +
+        (staff ? `担当: ${staff.name}\n` : '') +
         `メニュー: ${menuLabel(reservation.menu)}\n\n` +
         `ご来店を心よりお待ちしております。`
     );

@@ -6,6 +6,7 @@
   --bg: #faf8f5;
   --pending: #b8860b;
   --confirmed: #2f7a3d;
+  --cancelled: #9a9a9a;
 }
 
 * { box-sizing: border-box; }
@@ -73,9 +74,31 @@ body {
 }
 .badge--pending { background: var(--pending); }
 .badge--confirmed { background: var(--confirmed); }
+.badge--cancelled { background: var(--cancelled); }
 
 .empty-message {
   text-align: center;
   color: var(--muted);
   margin-top: 40px;
+}
+
+.staff-slots-section {
+  margin-top: 40px;
+}
+.staff-slots-section h2 {
+  font-size: 15px;
+  margin-bottom: 12px;
+}
+.staff-slots-controls {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 16px;
+  flex-wrap: wrap;
+}
+.staff-slots-controls select,
+.staff-slots-controls input {
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 13px;
 }

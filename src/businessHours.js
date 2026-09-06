@@ -31,4 +31,25 @@ function menuLabel(menuId) {
   return m ? m.label : menuId;
 }
 
-module.exports = { CLOSED_WEEKDAYS, SLOT_HOURS, MENUS, isBusinessDay, slotsForDate, isValidMenu, menuLabel };
+// 日本時間(JST)基準の「今日」「明日」の日付文字列(YYYY-MM-DD)。
+// サーバーはUTCで動いていることがあるため、前日リマインド等の日付判定はこちらを使う。
+function todayJST() {
+  return new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Tokyo' });
+}
+
+function tomorrowJST() {
+  const d = new Date(Date.now() + 24 * 60 * 60 * 1000);
+  return d.toLocaleDateString('sv-SE', { timeZone: 'Asia/Tokyo' });
+}
+
+module.exports = {
+  CLOSED_WEEKDAYS,
+  SLOT_HOURS,
+  MENUS,
+  isBusinessDay,
+  slotsForDate,
+  isValidMenu,
+  menuLabel,
+  todayJST,
+  tomorrowJST,
+};

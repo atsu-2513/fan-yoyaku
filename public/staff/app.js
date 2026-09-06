@@ -80,6 +80,12 @@
     renderCalendar();
   });
 
+  function weekStartOf(dateStr) {
+    const d = new Date(`${dateStr}T00:00:00`);
+    d.setDate(d.getDate() - d.getDay());
+    return toDateStr(d.getFullYear(), d.getMonth(), d.getDate());
+  }
+
   async function selectDate(dateStr) {
     state.selectedDate = dateStr;
     renderCalendar();
@@ -87,24 +93,62 @@
     const section = document.getElementById('slot-section');
     const label = document.getElementById('selected-date-label');
     const grid = document.getElementById('slot-grid');
+    const copyBtn = document.getElementById('copy-week');
+    const copyMsg = document.getElementById('copy-week-message');
     section.hidden = false;
     label.textContent = `${dateStr} の空き時間`;
     grid.innerHTML = '<p class="slot-hint">読み込み中...</p>';
+    copyMsg.hidden = true;
 
     try {
       const res = await fetch(`/staff/api/slots?date=${encodeURIComponent(dateStr)}`);
       const data = await res.json();
       if (!res.ok || !data.ok) {
         grid.innerHTML = '<p class="slot-hint">読み込みに失敗しました。</p>';
+        copyBtn.hidden = true;
         return;
       }
       if (!data.businessDay) {
         grid.innerHTML = '<p class="slot-hint">この日は定休日のため設定できません。</p>';
+        copyBtn.hidden = true;
         return;
       }
       renderSlotGrid(dateStr, data.candidateSlots, data.openSlots);
+      copyBtn.hidden = false;
+      copyBtn.onclick = () => copyWeekToNext(dateStr, copyBtn, copyMsg);
     } catch (err) {
       grid.innerHTML = '<p class="slot-hint">読み込みに失敗しました。</p>';
+    }
+  }
+
+  async function copyWeekToNext(dateStr, btn, msg) {
+    const weekStart = weekStartOf(dateStr);
+    btn.disabled = true;
+    msg.hidden = true;
+    try {
+      const res = await fetch('/staff/api/slots/copy-week', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ weekStart }),
+      });
+      const data = await res.json();
+      msg.hidden = false;
+      if (!res.ok || !data.ok) {
+        msg.className = 'message message--error';
+        msg.textContent = 'コピーに失敗しました。';
+      } else if (data.copied === 0) {
+        msg.className = 'message message--error';
+        msg.textContent = 'この週にはまだ開放した時間がありません。';
+      } else {
+        msg.className = 'message message--success';
+        msg.textContent = `来週に${data.copied}件の空き時間をコピーしました。`;
+      }
+    } catch (err) {
+      msg.hidden = false;
+      msg.className = 'message message--error';
+      msg.textContent = '通信エラーが発生しました。';
+    } finally {
+      btn.disabled = false;
     }
   }
 
@@ -160,7 +204,7 @@
     const statusTd = document.createElement('td');
     const badge = document.createElement('span');
     badge.className = `badge badge--${r.status}`;
-    badge.textContent = r.status === 'confirmed' ? '確定' : '仮予約';
+    badge.textContent = r.status === 'confirmed' ? '確定' : r.status === 'cancelled' ? 'キャンセル' : '仮予約';
     statusTd.appendChild(badge);
 
     const dateTd = document.createElement('td');
@@ -176,18 +220,50 @@
     phoneTd.textContent = r.phone;
 
     const actionTd = document.createElement('td');
-    if (r.status === 'confirmed') {
+    if (r.status === 'cancelled') {
       actionTd.textContent = '—';
     } else {
-      const btn = document.createElement('button');
-      btn.className = 'btn';
-      btn.textContent = '確定する';
-      btn.addEventListener('click', () => confirmReservation(r.id, btn));
-      actionTd.appendChild(btn);
+      const wrap = document.createElement('div');
+      wrap.style.display = 'flex';
+      wrap.style.gap = '6px';
+      if (r.status !== 'confirmed') {
+        const confirmBtn = document.createElement('button');
+        confirmBtn.className = 'btn';
+        confirmBtn.textContent = '確定する';
+        confirmBtn.addEventListener('click', () => confirmReservation(r.id, confirmBtn));
+        wrap.appendChild(confirmBtn);
+      }
+      const cancelBtn = document.createElement('button');
+      cancelBtn.className = 'btn btn--ghost';
+      cancelBtn.textContent = 'キャンセル';
+      cancelBtn.addEventListener('click', () => cancelReservationAction(r.id, cancelBtn));
+      wrap.appendChild(cancelBtn);
+      actionTd.appendChild(wrap);
     }
 
     tr.append(statusTd, dateTd, menuTd, nameTd, phoneTd, actionTd);
     return tr;
+  }
+
+  async function cancelReservationAction(id, btn) {
+    if (!window.confirm('このご予約をキャンセルしますか？お客様にLINEで通知が送信されます。')) return;
+    btn.disabled = true;
+    btn.textContent = '処理中...';
+    try {
+      const res = await fetch(`/staff/api/reservations/${id}/cancel`, { method: 'POST' });
+      const data = await res.json();
+      if (!res.ok || !data.ok) {
+        alert('キャンセル処理に失敗しました。');
+        btn.disabled = false;
+        btn.textContent = 'キャンセル';
+        return;
+      }
+      loadReservations();
+    } catch (err) {
+      alert('通信エラーが発生しました。');
+      btn.disabled = false;
+      btn.textContent = 'キャンセル';
+    }
   }
 
   async function confirmReservation(id, btn) {

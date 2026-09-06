@@ -6,6 +6,7 @@ const webhookRouter = require('./routes/webhook');
 const bookingRouter = require('./routes/booking');
 const adminRouter = require('./routes/admin');
 const staffRouter = require('./routes/staff');
+const cronRouter = require('./routes/cron');
 
 const app = express();
 
@@ -26,6 +27,7 @@ app.use('/staff', express.static(path.join(__dirname, '..', 'public', 'staff')))
 app.use(adminRouter);
 app.use(bookingRouter);
 app.use(staffRouter);
+app.use(cronRouter);
 
 app.get('/', (req, res) => {
   res.type('text/plain').send('hair salon FAN 予約システム稼働中');

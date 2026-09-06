@@ -9,6 +9,7 @@
   --success: #2f7a3d;
   --pending: #b8860b;
   --confirmed: #2f7a3d;
+  --cancelled: #9a9a9a;
 }
 
 * { box-sizing: border-box; }
@@ -177,5 +178,6 @@ input {
 }
 .badge--pending { background: var(--pending); }
 .badge--confirmed { background: var(--confirmed); }
+.badge--cancelled { background: var(--cancelled); }
 
 .empty-message { text-align: center; color: var(--muted); margin: 24px 0; font-size: 13px; }

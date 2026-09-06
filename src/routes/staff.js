@@ -9,6 +9,8 @@ const {
   listReservationsForStaff,
   getReservation,
   confirmReservation,
+  cancelReservation,
+  copyOpenSlotsToNextWeek,
 } = require('../db');
 const { isBusinessDay, SLOT_HOURS, menuLabel } = require('../businessHours');
 const { hashPassword, verifyPassword, createSessionCookie, clearSessionCookie, getStaffIdFromRequest } = require('../auth');
@@ -86,6 +88,14 @@ router.post('/staff/api/slots/toggle', requireStaffAuth, async (req, res) => {
   res.json({ ok: true, open: true });
 });
 
+// weekStart(日曜日始まり)を含む週に自分が開放した時間を、翌週の同じ曜日・時間へコピーする
+router.post('/staff/api/slots/copy-week', requireStaffAuth, async (req, res) => {
+  const { weekStart } = req.body || {};
+  if (!weekStart) return res.status(400).json({ ok: false, error: 'missing_fields' });
+  const copied = await copyOpenSlotsToNextWeek(req.staff.id, weekStart);
+  res.json({ ok: true, copied });
+});
+
 router.get('/staff/api/reservations', requireStaffAuth, async (req, res) => {
   const reservations = (await listReservationsForStaff(req.staff.id)).map((r) => ({
     ...r,
@@ -117,6 +127,34 @@ router.post('/staff/api/reservations/:id/confirm', requireStaffAuth, async (req,
     );
   } catch (err) {
     console.error('LINE push (確定/staff) failed:', err);
+  }
+
+  res.json({ ok: true, reservation });
+});
+
+router.post('/staff/api/reservations/:id/cancel', requireStaffAuth, async (req, res) => {
+  const id = Number(req.params.id);
+  const existing = await getReservation(id);
+  if (!existing || Number(existing.staff_id) !== Number(req.staff.id)) {
+    return res.status(404).json({ ok: false, error: 'not_found' });
+  }
+  if (existing.status === 'cancelled') {
+    return res.json({ ok: true, reservation: existing });
+  }
+
+  const reservation = await cancelReservation(id);
+
+  try {
+    await pushText(
+      reservation.line_user_id,
+      `${reservation.name}様\n誠に申し訳ございませんが、以下のご予約はキャンセルとなりました。\n\n` +
+        `日時: ${reservation.date} ${reservation.time}\n` +
+        `担当: ${req.staff.name}\n` +
+        `メニュー: ${menuLabel(reservation.menu)}\n\n` +
+        `ご不明な点がございましたら店舗までご連絡ください。`
+    );
+  } catch (err) {
+    console.error('LINE push (キャンセル/staff) failed:', err);
   }
 
   res.json({ ok: true, reservation });

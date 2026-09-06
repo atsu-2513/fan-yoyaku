@@ -62,6 +62,11 @@ function ready() {
       if (!hasStaffId) {
         await client.execute(`ALTER TABLE reservations ADD COLUMN staff_id INTEGER`);
       }
+      // 前日リマインド通知を二重送信しないための送信済みフラグ列
+      const hasReminderSentAt = columns.rows.some((c) => c.name === 'reminder_sent_at');
+      if (!hasReminderSentAt) {
+        await client.execute(`ALTER TABLE reservations ADD COLUMN reminder_sent_at TEXT`);
+      }
     })();
   }
   return readyPromise;
@@ -188,6 +193,36 @@ async function isSlotOpenForStaff(staffId, date, time) {
   return open.includes(time);
 }
 
+function pad2(n) {
+  return String(n).padStart(2, '0');
+}
+function formatDateLocal(d) {
+  return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+}
+
+// 指定した週(weekStartDateを含む7日間)に自分が開放した時間を、
+// 翌週の同じ曜日・同じ時間にそのままコピーする（毎週繰り返しパターンの手動適用）
+async function copyOpenSlotsToNextWeek(staffId, weekStartDate) {
+  await ready();
+  const start = new Date(`${weekStartDate}T00:00:00`);
+  let copied = 0;
+  for (let i = 0; i < 7; i++) {
+    const srcDate = new Date(start);
+    srcDate.setDate(start.getDate() + i);
+    const srcStr = formatDateLocal(srcDate);
+    const times = await getOpenSlotsForStaff(staffId, srcStr);
+    if (!times.length) continue;
+    const destDate = new Date(srcDate);
+    destDate.setDate(srcDate.getDate() + 7);
+    const destStr = formatDateLocal(destDate);
+    for (const t of times) {
+      await openSlot(staffId, destStr, t);
+      copied++;
+    }
+  }
+  return copied;
+}
+
 // ---------- 予約 ----------
 
 async function isSlotTaken(staffId, date, time) {
@@ -259,6 +294,47 @@ async function confirmReservation(id) {
   return getReservation(id);
 }
 
+async function cancelReservation(id) {
+  await ready();
+  await client.execute({
+    sql: `UPDATE reservations SET status = 'cancelled' WHERE id = ?`,
+    args: [id],
+  });
+  return getReservation(id);
+}
+
+// LINEの「キャンセル」コマンド用: そのお客様の、今日以降のキャンセル可能な予約一覧
+async function listUpcomingReservationsForUser(lineUserId, fromDate) {
+  await ready();
+  const result = await client.execute({
+    sql: `SELECT * FROM reservations
+          WHERE line_user_id = ? AND status IN ('pending', 'confirmed') AND date >= ?
+          ORDER BY date ASC, time ASC, id ASC`,
+    args: [lineUserId, fromDate],
+  });
+  return result.rows;
+}
+
+// 前日リマインド用: 指定日の確定済み予約のうち、まだリマインドを送っていないもの
+async function listConfirmedReservationsForDate(date) {
+  await ready();
+  const result = await client.execute({
+    sql: `SELECT * FROM reservations
+          WHERE date = ? AND status = 'confirmed' AND (reminder_sent_at IS NULL OR reminder_sent_at = '')
+          ORDER BY time ASC, id ASC`,
+    args: [date],
+  });
+  return result.rows;
+}
+
+async function markReminderSent(id) {
+  await ready();
+  await client.execute({
+    sql: `UPDATE reservations SET reminder_sent_at = ? WHERE id = ?`,
+    args: [new Date().toISOString(), id],
+  });
+}
+
 module.exports = {
   client,
   createBookingToken,
@@ -281,4 +357,9 @@ module.exports = {
   listReservationsForStaff,
   getReservation,
   confirmReservation,
+  cancelReservation,
+  listUpcomingReservationsForUser,
+  listConfirmedReservationsForDate,
+  markReminderSent,
+  copyOpenSlotsToNextWeek,
 };

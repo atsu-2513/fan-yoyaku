@@ -28,6 +28,25 @@
       <tbody id="reservations-body"></tbody>
     </table>
     <p id="empty-message" class="empty-message" hidden>予約はまだありません。</p>
+
+    <section class="staff-slots-section">
+      <h2>スタッフの空き状況</h2>
+      <div class="staff-slots-controls">
+        <select id="staff-slots-select"></select>
+        <input type="date" id="staff-slots-date" />
+        <button type="button" id="staff-slots-load" class="btn btn--ghost">表示</button>
+      </div>
+      <table class="table">
+        <thead>
+          <tr>
+            <th>時間</th>
+            <th>状態</th>
+          </tr>
+        </thead>
+        <tbody id="staff-slots-body"></tbody>
+      </table>
+      <p id="staff-slots-message" class="empty-message" hidden></p>
+    </section>
   </div>
 
   <script src="app.js"></script>

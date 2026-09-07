@@ -12,7 +12,7 @@ const {
   cancelReservation,
   copyOpenSlotsToDates,
 } = require('../db');
-const { isBusinessDay, SLOT_HOURS, menuLabel } = require('../businessHours');
+const { isBusinessDay, getSlotHours, menuLabel } = require('../businessHours');
 const { hashPassword, verifyPassword, createSessionCookie, clearSessionCookie, getStaffIdFromRequest } = require('../auth');
 const { pushText } = require('../line');
 
@@ -69,15 +69,16 @@ router.post('/staff/api/change-password', requireStaffAuth, async (req, res) => 
 router.get('/staff/api/slots', requireStaffAuth, async (req, res) => {
   const { date } = req.query;
   if (!date) return res.status(400).json({ ok: false, error: 'date_required' });
-  const candidateSlots = isBusinessDay(date) ? SLOT_HOURS.map((h) => `${String(h).padStart(2, '0')}:00`) : [];
+  const businessDay = await isBusinessDay(date);
+  const candidateSlots = businessDay ? (await getSlotHours()).map((h) => `${String(h).padStart(2, '0')}:00`) : [];
   const openSlots = await getOpenSlotsForStaff(req.staff.id, date);
-  res.json({ ok: true, date, businessDay: isBusinessDay(date), candidateSlots, openSlots });
+  res.json({ ok: true, date, businessDay, candidateSlots, openSlots });
 });
 
 router.post('/staff/api/slots/toggle', requireStaffAuth, async (req, res) => {
   const { date, time } = req.body || {};
   if (!date || !time) return res.status(400).json({ ok: false, error: 'missing_fields' });
-  if (!isBusinessDay(date)) return res.status(400).json({ ok: false, error: 'not_business_day' });
+  if (!(await isBusinessDay(date))) return res.status(400).json({ ok: false, error: 'not_business_day' });
 
   const openSlots = await getOpenSlotsForStaff(req.staff.id, date);
   if (openSlots.includes(time)) {
@@ -94,22 +95,27 @@ router.post('/staff/api/slots/copy', requireStaffAuth, async (req, res) => {
   if (!sourceDate || !Array.isArray(targetDates) || targetDates.length === 0) {
     return res.status(400).json({ ok: false, error: 'missing_fields' });
   }
-  const validTargets = targetDates.filter((d) => typeof d === 'string' && isBusinessDay(d));
+  const validTargets = [];
+  for (const d of targetDates) {
+    if (typeof d === 'string' && (await isBusinessDay(d))) validTargets.push(d);
+  }
   const skipped = targetDates.length - validTargets.length;
   const { copied } = await copyOpenSlotsToDates(req.staff.id, sourceDate, validTargets);
   res.json({ ok: true, copied, skipped });
 });
 
 router.get('/staff/api/reservations', requireStaffAuth, async (req, res) => {
-  const reservations = (await listReservationsForStaff(req.staff.id)).map((r) => ({
-    ...r,
-    menuLabel: menuLabel(r.menu),
-  }));
+  const rows = await listReservationsForStaff(req.staff.id);
+  const reservations = [];
+  for (const r of rows) {
+    reservations.push({ ...r, menuLabel: await menuLabel(r.menu) });
+  }
   res.json({ ok: true, reservations });
 });
 
 router.post('/staff/api/reservations/:id/confirm', requireStaffAuth, async (req, res) => {
   const id = Number(req.params.id);
+  const { reply } = req.body || {};
   const existing = await getReservation(id);
   if (!existing || Number(existing.staff_id) !== Number(req.staff.id)) {
     return res.status(404).json({ ok: false, error: 'not_found' });
@@ -118,7 +124,8 @@ router.post('/staff/api/reservations/:id/confirm', requireStaffAuth, async (req,
     return res.json({ ok: true, reservation: existing });
   }
 
-  const reservation = await confirmReservation(id);
+  const replyText = typeof reply === 'string' ? reply.trim().slice(0, 1000) : '';
+  const reservation = await confirmReservation(id, replyText || null);
 
   try {
     await pushText(
@@ -126,8 +133,9 @@ router.post('/staff/api/reservations/:id/confirm', requireStaffAuth, async (req,
       `${reservation.name}様\nご予約が確定しました。\n\n` +
         `日時: ${reservation.date} ${reservation.time}\n` +
         `担当: ${req.staff.name}\n` +
-        `メニュー: ${menuLabel(reservation.menu)}\n\n` +
-        `ご来店を心よりお待ちしております。`
+        `メニュー: ${await menuLabel(reservation.menu)}\n\n` +
+        `ご来店を心よりお待ちしております。` +
+        (reservation.reply_message ? `\n\n【ご相談へのご返信】\n${reservation.reply_message}` : '')
     );
   } catch (err) {
     console.error('LINE push (確定/staff) failed:', err);
@@ -154,7 +162,7 @@ router.post('/staff/api/reservations/:id/cancel', requireStaffAuth, async (req, 
       `${reservation.name}様\n誠に申し訳ございませんが、以下のご予約はキャンセルとなりました。\n\n` +
         `日時: ${reservation.date} ${reservation.time}\n` +
         `担当: ${req.staff.name}\n` +
-        `メニュー: ${menuLabel(reservation.menu)}\n\n` +
+        `メニュー: ${await menuLabel(reservation.menu)}\n\n` +
         `ご不明な点がございましたら店舗までご連絡ください。`
     );
   } catch (err) {

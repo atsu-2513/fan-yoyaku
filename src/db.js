@@ -52,6 +52,25 @@ function ready() {
             created_at TEXT NOT NULL,
             UNIQUE(staff_id, date, time)
           )`,
+          `CREATE TABLE IF NOT EXISTS settings (
+            key TEXT PRIMARY KEY,
+            value TEXT NOT NULL
+          )`,
+          `CREATE TABLE IF NOT EXISTS menus (
+            id TEXT PRIMARY KEY,
+            label TEXT NOT NULL,
+            price INTEGER,
+            active INTEGER NOT NULL DEFAULT 1,
+            sort_order INTEGER NOT NULL DEFAULT 0,
+            created_at TEXT NOT NULL
+          )`,
+          `CREATE TABLE IF NOT EXISTS staff_menu_settings (
+            staff_id INTEGER NOT NULL,
+            menu_id TEXT NOT NULL,
+            enabled INTEGER NOT NULL DEFAULT 1,
+            price_override INTEGER,
+            PRIMARY KEY (staff_id, menu_id)
+          )`,
         ],
         'write'
       );
@@ -66,6 +85,56 @@ function ready() {
       const hasReminderSentAt = columns.rows.some((c) => c.name === 'reminder_sent_at');
       if (!hasReminderSentAt) {
         await client.execute(`ALTER TABLE reservations ADD COLUMN reminder_sent_at TEXT`);
+      }
+      // お客様からの「ご相談」欄と、それへのスタッフからの返信
+      const hasConsultation = columns.rows.some((c) => c.name === 'consultation');
+      if (!hasConsultation) {
+        await client.execute(`ALTER TABLE reservations ADD COLUMN consultation TEXT`);
+      }
+      const hasReplyMessage = columns.rows.some((c) => c.name === 'reply_message');
+      if (!hasReplyMessage) {
+        await client.execute(`ALTER TABLE reservations ADD COLUMN reply_message TEXT`);
+      }
+      const hasReplySentAt = columns.rows.some((c) => c.name === 'reply_sent_at');
+      if (!hasReplySentAt) {
+        await client.execute(`ALTER TABLE reservations ADD COLUMN reply_sent_at TEXT`);
+      }
+
+      // スタッフのメール通知先アドレス
+      const staffColumns = await client.execute(`PRAGMA table_info(staff)`);
+      const hasEmail = staffColumns.rows.some((c) => c.name === 'email');
+      if (!hasEmail) {
+        await client.execute(`ALTER TABLE staff ADD COLUMN email TEXT`);
+      }
+
+      // 定休日・営業時間のデフォルト値(未設定時のみ投入)
+      const settingsResult = await client.execute(`SELECT key FROM settings`);
+      const existingKeys = new Set(settingsResult.rows.map((r) => r.key));
+      const defaultSettings = [
+        ['closed_weekdays', JSON.stringify([2])],
+        ['open_hour', '9'],
+        ['close_hour', '21'],
+      ];
+      for (const [key, value] of defaultSettings) {
+        if (!existingKeys.has(key)) {
+          await client.execute({ sql: `INSERT INTO settings (key, value) VALUES (?, ?)`, args: [key, value] });
+        }
+      }
+
+      // 共通メニューカタログのデフォルト値(まだ1件もなければ、これまでの固定メニューを投入)
+      const menuCountResult = await client.execute(`SELECT COUNT(*) AS c FROM menus`);
+      if (Number(menuCountResult.rows[0].c) === 0) {
+        const defaultMenus = [
+          { id: 'cut', label: 'カット', price: null, sort: 0 },
+          { id: 'color', label: 'カラー', price: null, sort: 1 },
+          { id: 'perm', label: 'パーマ', price: null, sort: 2 },
+        ];
+        for (const m of defaultMenus) {
+          await client.execute({
+            sql: `INSERT INTO menus (id, label, price, active, sort_order, created_at) VALUES (?, ?, ?, 1, ?, ?)`,
+            args: [m.id, m.label, m.price, m.sort, new Date().toISOString()],
+          });
+        }
       }
     })();
   }
@@ -148,7 +217,7 @@ async function listActiveStaff() {
 
 async function listAllStaff() {
   await ready();
-  const result = await client.execute(`SELECT id, name, username, active FROM staff ORDER BY id ASC`);
+  const result = await client.execute(`SELECT id, name, username, active, email FROM staff ORDER BY id ASC`);
   return result.rows;
 }
 
@@ -158,6 +227,124 @@ async function updateStaffPassword(id, passwordHash) {
     sql: `UPDATE staff SET password_hash = ? WHERE id = ?`,
     args: [passwordHash, id],
   });
+}
+
+async function updateStaffEmail(id, email) {
+  await ready();
+  await client.execute({
+    sql: `UPDATE staff SET email = ? WHERE id = ?`,
+    args: [email || null, id],
+  });
+  return getStaffById(id);
+}
+
+// ---------- 営業設定(定休日・営業時間) ----------
+
+async function getSettings() {
+  await ready();
+  const result = await client.execute(`SELECT key, value FROM settings`);
+  const map = {};
+  for (const row of result.rows) map[row.key] = row.value;
+  return {
+    closedWeekdays: map.closed_weekdays ? JSON.parse(map.closed_weekdays) : [2],
+    openHour: map.open_hour ? Number(map.open_hour) : 9,
+    closeHour: map.close_hour ? Number(map.close_hour) : 21,
+  };
+}
+
+async function updateSettings({ closedWeekdays, openHour, closeHour }) {
+  await ready();
+  const entries = [
+    ['closed_weekdays', JSON.stringify(closedWeekdays)],
+    ['open_hour', String(openHour)],
+    ['close_hour', String(closeHour)],
+  ];
+  for (const [key, value] of entries) {
+    await client.execute({
+      sql: `INSERT INTO settings (key, value) VALUES (?, ?)
+            ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
+      args: [key, value],
+    });
+  }
+  return getSettings();
+}
+
+// ---------- メニュー(共通カタログ + スタッフごとの調整) ----------
+
+async function listMenus() {
+  await ready();
+  const result = await client.execute(`SELECT * FROM menus WHERE active = 1 ORDER BY sort_order ASC, id ASC`);
+  return result.rows;
+}
+
+async function listAllMenusAdmin() {
+  await ready();
+  const result = await client.execute(`SELECT * FROM menus ORDER BY sort_order ASC, id ASC`);
+  return result.rows;
+}
+
+async function getMenuById(id) {
+  await ready();
+  const result = await client.execute({ sql: `SELECT * FROM menus WHERE id = ?`, args: [id] });
+  return result.rows[0] || null;
+}
+
+async function createMenu({ label, price }) {
+  await ready();
+  const id = `menu_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
+  const maxSort = await client.execute(`SELECT COALESCE(MAX(sort_order), -1) AS m FROM menus`);
+  const sortOrder = Number(maxSort.rows[0].m) + 1;
+  await client.execute({
+    sql: `INSERT INTO menus (id, label, price, active, sort_order, created_at) VALUES (?, ?, ?, 1, ?, ?)`,
+    args: [id, label, price, sortOrder, new Date().toISOString()],
+  });
+  return getMenuById(id);
+}
+
+async function updateMenu(id, { label, price, active }) {
+  await ready();
+  await client.execute({
+    sql: `UPDATE menus SET label = ?, price = ?, active = ? WHERE id = ?`,
+    args: [label, price, active ? 1 : 0, id],
+  });
+  return getMenuById(id);
+}
+
+async function getStaffMenuOverrides(staffId) {
+  await ready();
+  const result = await client.execute({
+    sql: `SELECT * FROM staff_menu_settings WHERE staff_id = ?`,
+    args: [staffId],
+  });
+  return result.rows;
+}
+
+async function setStaffMenuOverride(staffId, menuId, { enabled, priceOverride }) {
+  await ready();
+  await client.execute({
+    sql: `INSERT INTO staff_menu_settings (staff_id, menu_id, enabled, price_override)
+          VALUES (?, ?, ?, ?)
+          ON CONFLICT(staff_id, menu_id) DO UPDATE SET enabled = excluded.enabled, price_override = excluded.price_override`,
+    args: [staffId, menuId, enabled ? 1 : 0, priceOverride === null || priceOverride === undefined ? null : priceOverride],
+  });
+}
+
+// お客様の予約フォーム用: 指名したスタッフに実際に提供されるメニュー(価格込み)
+async function listMenusForStaff(staffId) {
+  await ready();
+  const menus = await listMenus();
+  const overrides = await getStaffMenuOverrides(staffId);
+  const overrideMap = new Map(overrides.map((o) => [o.menu_id, o]));
+  return menus
+    .filter((m) => {
+      const o = overrideMap.get(m.id);
+      return !o || Number(o.enabled) !== 0;
+    })
+    .map((m) => {
+      const o = overrideMap.get(m.id);
+      const price = o && o.price_override !== null && o.price_override !== undefined ? o.price_override : m.price;
+      return { id: m.id, label: m.label, price };
+    });
 }
 
 // ---------- スタッフの空き時間(自分で解放した枠) ----------
@@ -229,12 +416,12 @@ async function getTakenSlots(staffId, date) {
   return result.rows.map((r) => r.time);
 }
 
-async function createReservation({ lineUserId, staffId, date, time, menu, name, phone }) {
+async function createReservation({ lineUserId, staffId, date, time, menu, name, phone, consultation }) {
   await ready();
   const insert = await client.execute({
-    sql: `INSERT INTO reservations (line_user_id, staff_id, date, time, menu, name, phone, status, created_at)
-          VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', ?)`,
-    args: [lineUserId, staffId, date, time, menu, name, phone, new Date().toISOString()],
+    sql: `INSERT INTO reservations (line_user_id, staff_id, date, time, menu, name, phone, consultation, status, created_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?)`,
+    args: [lineUserId, staffId, date, time, menu, name, phone, consultation || null, new Date().toISOString()],
   });
   return getReservation(Number(insert.lastInsertRowid));
 }
@@ -270,12 +457,19 @@ async function getReservation(id) {
   return result.rows[0] || null;
 }
 
-async function confirmReservation(id) {
+async function confirmReservation(id, replyMessage) {
   await ready();
-  await client.execute({
-    sql: `UPDATE reservations SET status = 'confirmed' WHERE id = ?`,
-    args: [id],
-  });
+  if (replyMessage) {
+    await client.execute({
+      sql: `UPDATE reservations SET status = 'confirmed', reply_message = ?, reply_sent_at = ? WHERE id = ?`,
+      args: [replyMessage, new Date().toISOString(), id],
+    });
+  } else {
+    await client.execute({
+      sql: `UPDATE reservations SET status = 'confirmed' WHERE id = ?`,
+      args: [id],
+    });
+  }
   return getReservation(id);
 }
 
@@ -331,6 +525,17 @@ module.exports = {
   listActiveStaff,
   listAllStaff,
   updateStaffPassword,
+  updateStaffEmail,
+  getSettings,
+  updateSettings,
+  listMenus,
+  listAllMenusAdmin,
+  getMenuById,
+  createMenu,
+  updateMenu,
+  getStaffMenuOverrides,
+  setStaffMenuOverride,
+  listMenusForStaff,
   openSlot,
   closeSlot,
   getOpenSlotsForStaff,

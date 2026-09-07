@@ -27,7 +27,7 @@ router.get('/api/cron/send-reminders', async (req, res) => {
         `${r.name}様\n明日のご予約のお知らせです。\n\n` +
           `日時: ${r.date} ${r.time}\n` +
           (staff ? `担当: ${staff.name}\n` : '') +
-          `メニュー: ${menuLabel(r.menu)}\n\n` +
+          `メニュー: ${await menuLabel(r.menu)}\n\n` +
           `ご来店を心よりお待ちしております。`
       );
       await markReminderSent(r.id);

@@ -197,3 +197,14 @@ input {
 .badge--cancelled { background: var(--cancelled); }
 
 .empty-message { text-align: center; color: var(--muted); margin: 24px 0; font-size: 13px; }
+
+.reply-input {
+  width: 100%;
+  font-size: 12px;
+  font-family: inherit;
+  padding: 4px 6px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  resize: vertical;
+}
+.reply-sent { font-size: 12px; color: var(--muted); white-space: pre-wrap; }

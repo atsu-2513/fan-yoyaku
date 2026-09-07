@@ -275,6 +275,33 @@
     const menuTd = document.createElement('td');
     menuTd.textContent = r.menuLabel;
 
+    const consultTd = document.createElement('td');
+    consultTd.style.minWidth = '180px';
+    let replyInput = null;
+    if (r.consultation) {
+      const p = document.createElement('div');
+      p.textContent = r.consultation;
+      p.style.whiteSpace = 'pre-wrap';
+      p.style.marginBottom = '4px';
+      p.style.fontSize = '12px';
+      consultTd.appendChild(p);
+      if (r.status === 'pending') {
+        replyInput = document.createElement('textarea');
+        replyInput.className = 'reply-input';
+        replyInput.rows = 2;
+        replyInput.placeholder = '返信（確定時にLINEで届きます・任意）';
+        replyInput.value = r.reply_message || '';
+        consultTd.appendChild(replyInput);
+      } else if (r.reply_message) {
+        const rp = document.createElement('div');
+        rp.className = 'reply-sent';
+        rp.textContent = `返信: ${r.reply_message}`;
+        consultTd.appendChild(rp);
+      }
+    } else {
+      consultTd.textContent = '—';
+    }
+
     const nameTd = document.createElement('td');
     nameTd.textContent = r.name;
 
@@ -292,7 +319,9 @@
         const confirmBtn = document.createElement('button');
         confirmBtn.className = 'btn';
         confirmBtn.textContent = '確定する';
-        confirmBtn.addEventListener('click', () => confirmReservation(r.id, confirmBtn));
+        confirmBtn.addEventListener('click', () =>
+          confirmReservation(r.id, confirmBtn, replyInput ? replyInput.value : '')
+        );
         wrap.appendChild(confirmBtn);
       }
       const cancelBtn = document.createElement('button');
@@ -303,7 +332,7 @@
       actionTd.appendChild(wrap);
     }
 
-    tr.append(statusTd, dateTd, menuTd, nameTd, phoneTd, actionTd);
+    tr.append(statusTd, dateTd, menuTd, consultTd, nameTd, phoneTd, actionTd);
     return tr;
   }
 
@@ -328,11 +357,15 @@
     }
   }
 
-  async function confirmReservation(id, btn) {
+  async function confirmReservation(id, btn, reply) {
     btn.disabled = true;
     btn.textContent = '送信中...';
     try {
-      const res = await fetch(`/staff/api/reservations/${id}/confirm`, { method: 'POST' });
+      const res = await fetch(`/staff/api/reservations/${id}/confirm`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ reply: reply || '' }),
+      });
       const data = await res.json();
       if (!res.ok || !data.ok) {
         alert('確定処理に失敗しました。');

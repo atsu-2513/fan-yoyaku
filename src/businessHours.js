@@ -1,34 +1,72 @@
-// サロンの営業日・営業時間の設定。
-// 実際の営業時間に合わせて調整してください。
-// ここを変更するだけで予約ページ・スタッフ画面・管理画面すべてに反映されます
-// (これらは全てこのファイルの値をAPI経由で参照しており、他のファイルに複製はありません)。
+// サロンの営業日・営業時間・メニューはオーナーが管理画面から変更できます(DB管理)。
+// ここでは、DBの値をキャッシュしつつ扱いやすい形で提供します
+// (予約ページ・スタッフ画面・管理画面はすべてこのファイル経由でDBの値を参照するため、
+// 管理画面で変更すればどこにも複製なく反映されます)。
 
-const CLOSED_WEEKDAYS = [2]; // 0=日,1=月,2=火,... → 火曜定休
-const SLOT_HOURS = [9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20]; // 各時刻ちょうどに1枠（最終受付20時、閉店21時想定）
+let cachedSettings = null;
+let cachedMenus = null;
 
-const MENUS = [
-  { id: 'cut', label: 'カット' },
-  { id: 'color', label: 'カラー' },
-  { id: 'perm', label: 'パーマ' },
-];
+async function loadSettings() {
+  if (!cachedSettings) {
+    const { getSettings } = require('./db');
+    cachedSettings = await getSettings();
+  }
+  return cachedSettings;
+}
 
-function isBusinessDay(dateStr) {
+// 管理画面で定休日・営業時間を更新した直後に呼び出し、キャッシュを作り直す
+function invalidateSettingsCache() {
+  cachedSettings = null;
+}
+
+async function loadMenus() {
+  if (!cachedMenus) {
+    const { listAllMenusAdmin } = require('./db');
+    cachedMenus = await listAllMenusAdmin();
+  }
+  return cachedMenus;
+}
+
+// 管理画面でメニューを追加・変更した直後に呼び出し、キャッシュを作り直す
+function invalidateMenuCache() {
+  cachedMenus = null;
+}
+
+async function getBusinessSettings() {
+  return loadSettings();
+}
+
+async function getSlotHours() {
+  const s = await loadSettings();
+  const hours = [];
+  for (let h = s.openHour; h < s.closeHour; h++) hours.push(h);
+  return hours;
+}
+
+async function isBusinessDay(dateStr) {
   const d = new Date(`${dateStr}T00:00:00`);
   if (Number.isNaN(d.getTime())) return false;
-  return !CLOSED_WEEKDAYS.includes(d.getDay());
+  const s = await loadSettings();
+  return !s.closedWeekdays.includes(d.getDay());
 }
 
-function slotsForDate(dateStr) {
-  if (!isBusinessDay(dateStr)) return [];
-  return SLOT_HOURS.map((h) => `${String(h).padStart(2, '0')}:00`);
+async function slotsForDate(dateStr) {
+  if (!(await isBusinessDay(dateStr))) return [];
+  const hours = await getSlotHours();
+  return hours.map((h) => `${String(h).padStart(2, '0')}:00`);
 }
 
-function isValidMenu(menuId) {
-  return MENUS.some((m) => m.id === menuId);
+// メニューIDが(有効な)メニューとして存在するか。特定スタッフに提供されているかは
+// db.js の listMenusForStaff() で別途確認すること。
+async function isValidMenu(menuId) {
+  const menus = await loadMenus();
+  return menus.some((m) => m.id === menuId && Number(m.active) === 1);
 }
 
-function menuLabel(menuId) {
-  const m = MENUS.find((m) => m.id === menuId);
+// メニューIDから表示名を引く(カタログから消えていない限り、無効化後も履歴表示のため引ける)
+async function menuLabel(menuId) {
+  const menus = await loadMenus();
+  const m = menus.find((mm) => mm.id === menuId);
   return m ? m.label : menuId;
 }
 
@@ -44,13 +82,14 @@ function tomorrowJST() {
 }
 
 module.exports = {
-  CLOSED_WEEKDAYS,
-  SLOT_HOURS,
-  MENUS,
+  getBusinessSettings,
+  getSlotHours,
   isBusinessDay,
   slotsForDate,
   isValidMenu,
   menuLabel,
+  invalidateSettingsCache,
+  invalidateMenuCache,
   todayJST,
   tomorrowJST,
 };

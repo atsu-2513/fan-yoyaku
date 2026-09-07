@@ -144,7 +144,7 @@ async function handlePostback(event) {
           `ご予約をキャンセルしました。\n\n` +
           `日時: ${cancelled.date} ${cancelled.time}\n` +
           (staff ? `担当: ${staff.name}\n` : '') +
-          `メニュー: ${menuLabel(cancelled.menu)}\n\n` +
+          `メニュー: ${await menuLabel(cancelled.menu)}\n\n` +
           `またのご利用をお待ちしております。`,
       },
     ],

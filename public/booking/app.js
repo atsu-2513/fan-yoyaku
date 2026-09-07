@@ -44,10 +44,8 @@
         showScreen(errorScreen);
         return;
       }
-      state.menus = data.menus || [];
       state.staff = data.staff || [];
       renderStaffOptions();
-      renderMenuOptions();
       renderCalendar();
       showScreen(formScreen);
     } catch (err) {
@@ -67,14 +65,16 @@
       const el = document.createElement('div');
       el.className = 'menu-option';
       el.textContent = staff.name;
-      el.addEventListener('click', () => {
+      el.addEventListener('click', async () => {
         state.selectedStaff = staff;
         state.selectedDate = null;
         state.selectedTime = null;
+        state.selectedMenu = null;
         document.querySelectorAll('#staff-options .menu-option').forEach((o) => o.classList.remove('is-selected'));
         el.classList.add('is-selected');
         document.getElementById('time-section').hidden = true;
         renderCalendar();
+        await loadMenusForStaff(staff.id);
         goToStep(2);
       });
       wrap.appendChild(el);
@@ -175,13 +175,37 @@
   }
 
   // ---------- Step 3: Menu ----------
+  async function loadMenusForStaff(staffId) {
+    const wrap = document.getElementById('menu-options');
+    wrap.innerHTML = '<p class="time-empty">読み込み中...</p>';
+    try {
+      const res = await fetch(
+        `/api/booking/menus?token=${encodeURIComponent(state.token)}&staffId=${encodeURIComponent(staffId)}`
+      );
+      const data = await res.json();
+      state.menus = res.ok && data.ok ? data.menus || [] : [];
+    } catch (err) {
+      state.menus = [];
+    }
+    renderMenuOptions();
+  }
+
+  function menuOptionText(menu) {
+    return menu.price != null && menu.price !== '' ? `${menu.label}（¥${Number(menu.price).toLocaleString()}）` : menu.label;
+  }
+
   function renderMenuOptions() {
     const wrap = document.getElementById('menu-options');
     wrap.innerHTML = '';
+    document.getElementById('to-step-4').disabled = true;
+    if (!state.menus.length) {
+      wrap.innerHTML = '<p class="time-empty">現在このスタッフが対応できるメニューがありません。お手数ですが店舗にお問い合わせください。</p>';
+      return;
+    }
     state.menus.forEach((menu) => {
       const el = document.createElement('div');
       el.className = 'menu-option';
-      el.textContent = menu.label;
+      el.textContent = menuOptionText(menu);
       el.addEventListener('click', () => {
         state.selectedMenu = menu;
         document.querySelectorAll('#menu-options .menu-option').forEach((o) => o.classList.remove('is-selected'));
@@ -212,7 +236,7 @@
     el.innerHTML = `
       <div>担当: ${state.selectedStaff ? state.selectedStaff.name : ''}</div>
       <div>日時: ${state.selectedDate} ${state.selectedTime}</div>
-      <div>メニュー: ${state.selectedMenu ? state.selectedMenu.label : ''}</div>
+      <div>メニュー: ${state.selectedMenu ? menuOptionText(state.selectedMenu) : ''}</div>
     `;
   }
 
@@ -225,6 +249,7 @@
     const form = e.target;
     const name = form.name.value.trim();
     const phone = form.phone.value.trim();
+    const consultation = form.consultation.value.trim();
 
     const submitBtn = form.querySelector('button[type="submit"]');
     submitBtn.disabled = true;
@@ -241,6 +266,7 @@
           menu: state.selectedMenu ? state.selectedMenu.id : null,
           name,
           phone,
+          consultation,
         }),
       });
       const data = await res.json();

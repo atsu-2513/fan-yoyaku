@@ -20,6 +20,7 @@
           <th>日時</th>
           <th>担当</th>
           <th>メニュー</th>
+          <th>ご相談・返信</th>
           <th>お名前</th>
           <th>電話番号</th>
           <th>操作</th>
@@ -46,6 +47,92 @@
         <tbody id="staff-slots-body"></tbody>
       </table>
       <p id="staff-slots-message" class="empty-message" hidden></p>
+    </section>
+
+    <section class="settings-section">
+      <h2>定休日・営業時間</h2>
+      <div class="weekday-checks" id="weekday-checks">
+        <label><input type="checkbox" value="0" /> 日</label>
+        <label><input type="checkbox" value="1" /> 月</label>
+        <label><input type="checkbox" value="2" /> 火</label>
+        <label><input type="checkbox" value="3" /> 水</label>
+        <label><input type="checkbox" value="4" /> 木</label>
+        <label><input type="checkbox" value="5" /> 金</label>
+        <label><input type="checkbox" value="6" /> 土</label>
+      </div>
+      <p class="slot-hint">チェックした曜日が定休日になります。</p>
+      <div class="hours-row">
+        <label>
+          開店時刻
+          <select id="open-hour-select"></select>
+        </label>
+        <label>
+          閉店時刻
+          <select id="close-hour-select"></select>
+        </label>
+      </div>
+      <p class="slot-hint">閉店の1時間前が最終受付時刻になります。</p>
+      <button type="button" id="settings-save" class="btn">保存する</button>
+      <p id="settings-message" class="empty-message" hidden></p>
+    </section>
+
+    <section class="menu-section">
+      <h2>メニュー管理（共通）</h2>
+      <table class="table" id="menu-table">
+        <thead>
+          <tr>
+            <th>メニュー名</th>
+            <th>価格（円）</th>
+            <th>公開する</th>
+            <th>操作</th>
+          </tr>
+        </thead>
+        <tbody id="menu-body"></tbody>
+      </table>
+      <form id="menu-add-form" class="menu-add-form">
+        <input type="text" id="new-menu-label" placeholder="新しいメニュー名" required />
+        <input type="number" id="new-menu-price" placeholder="価格（円・任意）" min="0" />
+        <button type="submit" class="btn btn--ghost">メニューを追加</button>
+      </form>
+      <p id="menu-message" class="empty-message" hidden></p>
+    </section>
+
+    <section class="menu-section">
+      <h2>スタッフごとのメニュー調整</h2>
+      <p class="slot-hint">共通メニューを基本として、特定のスタッフだけ「提供しない」「価格を変える」を設定できます。</p>
+      <div class="staff-slots-controls">
+        <select id="staff-menu-select"></select>
+        <button type="button" id="staff-menu-load" class="btn btn--ghost">読み込み</button>
+      </div>
+      <table class="table" id="staff-menu-table">
+        <thead>
+          <tr>
+            <th>メニュー</th>
+            <th>共通価格</th>
+            <th>提供する</th>
+            <th>価格を変える場合（円）</th>
+          </tr>
+        </thead>
+        <tbody id="staff-menu-body"></tbody>
+      </table>
+      <button type="button" id="staff-menu-save" class="btn" style="margin-top:10px;">保存する</button>
+      <p id="staff-menu-message" class="empty-message" hidden></p>
+    </section>
+
+    <section class="menu-section">
+      <h2>スタッフの通知先メールアドレス</h2>
+      <p class="slot-hint">予約が入った時に、担当スタッフへメールで通知するためのアドレスです（未設定のスタッフには通知されません）。</p>
+      <table class="table" id="staff-email-table">
+        <thead>
+          <tr>
+            <th>スタッフ</th>
+            <th>メールアドレス</th>
+            <th>操作</th>
+          </tr>
+        </thead>
+        <tbody id="staff-email-body"></tbody>
+      </table>
+      <p id="staff-email-message" class="empty-message" hidden></p>
     </section>
   </div>
 

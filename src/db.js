@@ -170,6 +170,7 @@ function ready() {
         await client.execute({
           sql: `INSERT INTO settings (key, value) VALUES ('migrated_half_hour_open_slots', '1')
                 ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
+          args: [],
         });
       }
     })();

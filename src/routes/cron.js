@@ -8,13 +8,14 @@ const router = express.Router();
 // 外部の無料スケジューラ(cron-job.org等)から1日1回叩いてもらうエンドポイント。
 // ?key=CRON_SECRET が一致しないと動かない(いたずら防止)。
 // 明日の確定済み予約に、まだ送っていなければリマインドをLINEで送る。
+// 動作確認用に ?date=YYYY-MM-DD を付けると、その日付を対象にテストできる(通常は付けなくてOK)。
 router.get('/api/cron/send-reminders', async (req, res) => {
   const key = req.query.key;
   if (!process.env.CRON_SECRET || key !== process.env.CRON_SECRET) {
     return res.status(401).json({ ok: false, error: 'unauthorized' });
   }
 
-  const date = tomorrowJST();
+  const date = typeof req.query.date === 'string' && req.query.date ? req.query.date : tomorrowJST();
   const reservations = await listConfirmedReservationsForDate(date);
 
   let sent = 0;

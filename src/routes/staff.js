@@ -10,7 +10,7 @@ const {
   getReservation,
   confirmReservation,
   cancelReservation,
-  copyOpenSlotsToNextWeek,
+  copyOpenSlotsToDates,
 } = require('../db');
 const { isBusinessDay, SLOT_HOURS, menuLabel } = require('../businessHours');
 const { hashPassword, verifyPassword, createSessionCookie, clearSessionCookie, getStaffIdFromRequest } = require('../auth');
@@ -88,12 +88,16 @@ router.post('/staff/api/slots/toggle', requireStaffAuth, async (req, res) => {
   res.json({ ok: true, open: true });
 });
 
-// weekStart(日曜日始まり)を含む週に自分が開放した時間を、翌週の同じ曜日・時間へコピーする
-router.post('/staff/api/slots/copy-week', requireStaffAuth, async (req, res) => {
-  const { weekStart } = req.body || {};
-  if (!weekStart) return res.status(400).json({ ok: false, error: 'missing_fields' });
-  const copied = await copyOpenSlotsToNextWeek(req.staff.id, weekStart);
-  res.json({ ok: true, copied });
+// sourceDateに自分が開放している時間を、選んだ複数のtargetDatesにまとめてコピーする
+router.post('/staff/api/slots/copy', requireStaffAuth, async (req, res) => {
+  const { sourceDate, targetDates } = req.body || {};
+  if (!sourceDate || !Array.isArray(targetDates) || targetDates.length === 0) {
+    return res.status(400).json({ ok: false, error: 'missing_fields' });
+  }
+  const validTargets = targetDates.filter((d) => typeof d === 'string' && isBusinessDay(d));
+  const skipped = targetDates.length - validTargets.length;
+  const { copied } = await copyOpenSlotsToDates(req.staff.id, sourceDate, validTargets);
+  res.json({ ok: true, copied, skipped });
 });
 
 router.get('/staff/api/reservations', requireStaffAuth, async (req, res) => {

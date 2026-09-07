@@ -193,34 +193,19 @@ async function isSlotOpenForStaff(staffId, date, time) {
   return open.includes(time);
 }
 
-function pad2(n) {
-  return String(n).padStart(2, '0');
-}
-function formatDateLocal(d) {
-  return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
-}
-
-// 指定した週(weekStartDateを含む7日間)に自分が開放した時間を、
-// 翌週の同じ曜日・同じ時間にそのままコピーする（毎週繰り返しパターンの手動適用）
-async function copyOpenSlotsToNextWeek(staffId, weekStartDate) {
+// sourceDate に自分が開放している時間を、指定した複数の日付(targetDates)すべてに
+// まとめてコピーする（カレンダーから複数日をタップして選ぶ一括コピー機能）
+async function copyOpenSlotsToDates(staffId, sourceDate, targetDates) {
   await ready();
-  const start = new Date(`${weekStartDate}T00:00:00`);
+  const times = await getOpenSlotsForStaff(staffId, sourceDate);
   let copied = 0;
-  for (let i = 0; i < 7; i++) {
-    const srcDate = new Date(start);
-    srcDate.setDate(start.getDate() + i);
-    const srcStr = formatDateLocal(srcDate);
-    const times = await getOpenSlotsForStaff(staffId, srcStr);
-    if (!times.length) continue;
-    const destDate = new Date(srcDate);
-    destDate.setDate(srcDate.getDate() + 7);
-    const destStr = formatDateLocal(destDate);
+  for (const date of targetDates) {
     for (const t of times) {
-      await openSlot(staffId, destStr, t);
+      await openSlot(staffId, date, t);
       copied++;
     }
   }
-  return copied;
+  return { sourceCount: times.length, copied };
 }
 
 // ---------- 予約 ----------
@@ -361,5 +346,5 @@ module.exports = {
   listUpcomingReservationsForUser,
   listConfirmedReservationsForDate,
   markReminderSent,
-  copyOpenSlotsToNextWeek,
+  copyOpenSlotsToDates,
 };

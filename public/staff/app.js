@@ -4,6 +4,8 @@
     viewMonth: new Date(new Date().getFullYear(), new Date().getMonth(), 1),
     selectedDate: null,
     openSlots: [],
+    copyMode: false,
+    copyTargets: new Set(),
   };
 
   function pad2(n) {
@@ -66,7 +68,14 @@
       btn.textContent = String(d);
       btn.disabled = dateStr < today;
       if (dateStr === state.selectedDate) btn.classList.add('is-selected');
-      btn.addEventListener('click', () => selectDate(dateStr));
+      if (state.copyMode && state.copyTargets.has(dateStr)) btn.classList.add('is-copy-target');
+      btn.addEventListener('click', () => {
+        if (state.copyMode) {
+          toggleCopyTarget(dateStr);
+        } else {
+          selectDate(dateStr);
+        }
+      });
       grid.appendChild(btn);
     }
   }
@@ -80,56 +89,105 @@
     renderCalendar();
   });
 
-  function weekStartOf(dateStr) {
-    const d = new Date(`${dateStr}T00:00:00`);
-    d.setDate(d.getDate() - d.getDay());
-    return toDateStr(d.getFullYear(), d.getMonth(), d.getDate());
-  }
-
   async function selectDate(dateStr) {
     state.selectedDate = dateStr;
+    exitCopyMode();
     renderCalendar();
 
     const section = document.getElementById('slot-section');
     const label = document.getElementById('selected-date-label');
     const grid = document.getElementById('slot-grid');
-    const copyBtn = document.getElementById('copy-week');
-    const copyMsg = document.getElementById('copy-week-message');
+    const copyToggle = document.getElementById('copy-mode-toggle');
     section.hidden = false;
     label.textContent = `${dateStr} の空き時間`;
     grid.innerHTML = '<p class="slot-hint">読み込み中...</p>';
-    copyMsg.hidden = true;
 
     try {
       const res = await fetch(`/staff/api/slots?date=${encodeURIComponent(dateStr)}`);
       const data = await res.json();
       if (!res.ok || !data.ok) {
         grid.innerHTML = '<p class="slot-hint">読み込みに失敗しました。</p>';
-        copyBtn.hidden = true;
+        copyToggle.hidden = true;
         return;
       }
       if (!data.businessDay) {
         grid.innerHTML = '<p class="slot-hint">この日は定休日のため設定できません。</p>';
-        copyBtn.hidden = true;
+        copyToggle.hidden = true;
         return;
       }
       renderSlotGrid(dateStr, data.candidateSlots, data.openSlots);
-      copyBtn.hidden = false;
-      copyBtn.onclick = () => copyWeekToNext(dateStr, copyBtn, copyMsg);
+      copyToggle.hidden = false;
     } catch (err) {
       grid.innerHTML = '<p class="slot-hint">読み込みに失敗しました。</p>';
     }
   }
 
-  async function copyWeekToNext(dateStr, btn, msg) {
-    const weekStart = weekStartOf(dateStr);
+  // ---------- 他の日への一括コピー ----------
+  document.getElementById('copy-mode-toggle').addEventListener('click', () => {
+    if (!state.selectedDate) return;
+    state.copyMode = true;
+    state.copyTargets.clear();
+    document.getElementById('copy-mode-toggle').hidden = true;
+    document.getElementById('copy-targets-panel').hidden = false;
+    document.getElementById('copy-message').hidden = true;
+    renderCopyTargetsList();
+    renderCalendar();
+  });
+
+  document.getElementById('copy-cancel').addEventListener('click', () => {
+    exitCopyMode();
+    renderCalendar();
+  });
+
+  function exitCopyMode() {
+    state.copyMode = false;
+    state.copyTargets.clear();
+    document.getElementById('copy-mode-toggle').hidden = false;
+    document.getElementById('copy-targets-panel').hidden = true;
+  }
+
+  function toggleCopyTarget(dateStr) {
+    if (dateStr === state.selectedDate) return; // コピー元の日は対象にできない
+    if (state.copyTargets.has(dateStr)) {
+      state.copyTargets.delete(dateStr);
+    } else {
+      state.copyTargets.add(dateStr);
+    }
+    renderCalendar();
+    renderCopyTargetsList();
+  }
+
+  function renderCopyTargetsList() {
+    const list = document.getElementById('copy-targets-list');
+    const execBtn = document.getElementById('copy-execute');
+    const targets = Array.from(state.copyTargets).sort();
+    if (targets.length === 0) {
+      list.innerHTML = '<p class="slot-hint">まだ選択されていません。</p>';
+    } else {
+      list.innerHTML = '';
+      targets.forEach((d) => {
+        const chip = document.createElement('span');
+        chip.className = 'copy-target-chip';
+        chip.textContent = d;
+        list.appendChild(chip);
+      });
+    }
+    execBtn.disabled = targets.length === 0;
+  }
+
+  document.getElementById('copy-execute').addEventListener('click', async () => {
+    const btn = document.getElementById('copy-execute');
+    const msg = document.getElementById('copy-message');
+    const targetDates = Array.from(state.copyTargets);
+    if (!state.selectedDate || targetDates.length === 0) return;
+
     btn.disabled = true;
     msg.hidden = true;
     try {
-      const res = await fetch('/staff/api/slots/copy-week', {
+      const res = await fetch('/staff/api/slots/copy', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ weekStart }),
+        body: JSON.stringify({ sourceDate: state.selectedDate, targetDates }),
       });
       const data = await res.json();
       msg.hidden = false;
@@ -138,10 +196,14 @@
         msg.textContent = 'コピーに失敗しました。';
       } else if (data.copied === 0) {
         msg.className = 'message message--error';
-        msg.textContent = 'この週にはまだ開放した時間がありません。';
+        msg.textContent = 'コピーできる開放済みの時間がありません。';
       } else {
+        const skippedNote = data.skipped ? `（定休日のため${data.skipped}件はスキップしました）` : '';
         msg.className = 'message message--success';
-        msg.textContent = `来週に${data.copied}件の空き時間をコピーしました。`;
+        msg.textContent = `${targetDates.length - data.skipped}日に、合計${data.copied}件の空き時間をコピーしました。${skippedNote}`;
+        state.copyTargets.clear();
+        renderCopyTargetsList();
+        renderCalendar();
       }
     } catch (err) {
       msg.hidden = false;
@@ -150,7 +212,7 @@
     } finally {
       btn.disabled = false;
     }
-  }
+  });
 
   function renderSlotGrid(dateStr, candidateSlots, openSlots) {
     const grid = document.getElementById('slot-grid');

@@ -33,8 +33,19 @@
         <h3 id="selected-date-label" style="font-size:14px;"></h3>
         <p class="slot-hint">タップした時間がお客様の予約フォームに表示されます。もう一度タップすると非表示になります。</p>
         <div id="slot-grid" class="slot-grid"></div>
-        <button type="button" id="copy-week" class="btn btn--ghost" style="margin-top:14px;">この週の設定を来週にコピー</button>
-        <p id="copy-week-message" class="message" hidden style="margin-top:12px;"></p>
+
+        <div class="copy-panel">
+          <button type="button" id="copy-mode-toggle" class="btn btn--ghost" style="margin-top:14px;">この日の設定を他の日にコピー</button>
+          <div id="copy-targets-panel" hidden style="margin-top:12px;">
+            <p class="slot-hint">コピーしたい日をカレンダーからタップして選んでください（複数選択できます）。</p>
+            <div id="copy-targets-list" class="copy-targets-list"></div>
+            <div style="display:flex; gap:8px; margin-top:10px;">
+              <button type="button" id="copy-execute" class="btn" disabled>選択した日にコピーする</button>
+              <button type="button" id="copy-cancel" class="btn btn--ghost">やめる</button>
+            </div>
+            <p id="copy-message" class="message" hidden style="margin-top:12px;"></p>
+          </div>
+        </div>
       </div>
     </section>
 

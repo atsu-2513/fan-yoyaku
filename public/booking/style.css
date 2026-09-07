@@ -118,6 +118,20 @@ body {
   color: #fff;
   font-weight: bold;
 }
+.day-cell {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1px;
+  line-height: 1.1;
+}
+.day-mark {
+  font-size: 11px;
+  color: var(--brand);
+}
+.day-cell.is-selected .day-mark { color: #fff; }
+.day-cell.no-availability .day-num { color: #c8c4bc; }
 
 .time-section { margin-top: 20px; }
 .time-slots {

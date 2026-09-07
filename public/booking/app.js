@@ -15,6 +15,7 @@
     selectedDate: null, // 'YYYY-MM-DD'
     selectedTime: null,
     selectedMenu: null,
+    monthAvailability: {}, // { 'YYYY-MM-DD': 'available' | 'none' | 'closed' }
   };
 
   function showScreen(el) {
@@ -73,6 +74,7 @@
         document.querySelectorAll('#staff-options .menu-option').forEach((o) => o.classList.remove('is-selected'));
         el.classList.add('is-selected');
         document.getElementById('time-section').hidden = true;
+        state.monthAvailability = {};
         renderCalendar();
         await loadMenusForStaff(staff.id);
         goToStep(2);
@@ -105,9 +107,17 @@
       const btn = document.createElement('button');
       btn.type = 'button';
       btn.className = 'day-cell';
-      btn.textContent = String(d);
       const isPast = dateStr < today;
       btn.disabled = isPast;
+      const status = state.monthAvailability[dateStr];
+      let markHtml = '';
+      if (!isPast && status === 'available') {
+        btn.classList.add('has-availability');
+        markHtml = '<span class="day-mark">○</span>';
+      } else if (!isPast && (status === 'none' || status === 'closed')) {
+        btn.classList.add('no-availability');
+      }
+      btn.innerHTML = `<span class="day-num">${d}</span>${markHtml}`;
       if (dateStr === state.selectedDate) btn.classList.add('is-selected');
       btn.addEventListener('click', () => selectDate(dateStr));
       grid.appendChild(btn);
@@ -116,12 +126,35 @@
 
   document.getElementById('prev-month').addEventListener('click', () => {
     state.viewMonth = new Date(state.viewMonth.getFullYear(), state.viewMonth.getMonth() - 1, 1);
-    renderCalendar();
+    loadMonthAvailability();
   });
   document.getElementById('next-month').addEventListener('click', () => {
     state.viewMonth = new Date(state.viewMonth.getFullYear(), state.viewMonth.getMonth() + 1, 1);
-    renderCalendar();
+    loadMonthAvailability();
   });
+
+  // 指名スタッフ・メニューが決まったら、表示中の月の空き状況(日付ごとの○/空きなし)をまとめて取得する
+  async function loadMonthAvailability() {
+    if (!state.selectedStaff || !state.selectedMenu) {
+      state.monthAvailability = {};
+      renderCalendar();
+      return;
+    }
+    try {
+      const y = state.viewMonth.getFullYear();
+      const m = state.viewMonth.getMonth() + 1;
+      const res = await fetch(
+        `/api/booking/availability-month?token=${encodeURIComponent(state.token)}&staffId=${encodeURIComponent(
+          state.selectedStaff.id
+        )}&menu=${encodeURIComponent(state.selectedMenu.id)}&year=${y}&month=${m}`
+      );
+      const data = await res.json();
+      state.monthAvailability = res.ok && data.ok ? data.days || {} : {};
+    } catch (err) {
+      state.monthAvailability = {};
+    }
+    renderCalendar();
+  }
 
   async function selectDate(dateStr) {
     if (!state.selectedStaff || !state.selectedMenu) return;
@@ -215,7 +248,7 @@
         document.querySelectorAll('#menu-options .menu-option').forEach((o) => o.classList.remove('is-selected'));
         el.classList.add('is-selected');
         document.getElementById('time-section').hidden = true;
-        renderCalendar();
+        loadMonthAvailability();
         goToStep(3);
       });
       wrap.appendChild(el);

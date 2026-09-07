@@ -456,6 +456,39 @@ async function getTakenSlots(staffId, date) {
   return Array.from(taken);
 }
 
+// 月まとめ表示(カレンダーに空き○を出す)用: 期間内(startDate〜endDate, 両端含む)の
+// 開放時間・予約済みコマを、日付ごとにまとめて1回のクエリで取得する(日数ぶんクエリを繰り返さないため)
+async function getOpenSlotsForStaffRange(staffId, startDate, endDate) {
+  await ready();
+  const result = await client.execute({
+    sql: `SELECT date, time FROM staff_open_slots WHERE staff_id = ? AND date >= ? AND date <= ? ORDER BY date ASC, time ASC`,
+    args: [staffId, startDate, endDate],
+  });
+  const byDate = {};
+  for (const r of result.rows) {
+    if (!byDate[r.date]) byDate[r.date] = [];
+    byDate[r.date].push(r.time);
+  }
+  return byDate;
+}
+
+async function getTakenSlotsForRange(staffId, startDate, endDate) {
+  await ready();
+  const result = await client.execute({
+    sql: `SELECT date, time, duration_minutes FROM reservations
+          WHERE staff_id = ? AND date >= ? AND date <= ? AND status != 'cancelled'`,
+    args: [staffId, startDate, endDate],
+  });
+  const byDate = {};
+  for (const r of result.rows) {
+    if (!byDate[r.date]) byDate[r.date] = new Set();
+    for (const t of expandRange(r.time, r.duration_minutes || 60)) byDate[r.date].add(t);
+  }
+  const out = {};
+  for (const d of Object.keys(byDate)) out[d] = Array.from(byDate[d]);
+  return out;
+}
+
 async function createReservation({ lineUserId, staffId, date, time, menu, name, phone, consultation, durationMinutes }) {
   await ready();
   const insert = await client.execute({
@@ -579,8 +612,10 @@ module.exports = {
   openSlot,
   closeSlot,
   getOpenSlotsForStaff,
+  getOpenSlotsForStaffRange,
   isSlotOpenForStaff,
   getTakenSlots,
+  getTakenSlotsForRange,
   createReservation,
   listReservationsWithStaff,
   listReservationsForStaff,

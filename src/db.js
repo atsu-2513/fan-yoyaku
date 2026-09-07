@@ -16,8 +16,17 @@ const TOKEN_TTL_MINUTES = 30;
 let readyPromise = null;
 function ready() {
   if (!readyPromise) {
-    readyPromise = (async () => {
-      await client.batch(
+    readyPromise = initSchema().catch((err) => {
+      console.error('DBの初期化(ready)に失敗しました:', err);
+      readyPromise = null;
+      throw err;
+    });
+  }
+  return readyPromise;
+}
+
+async function initSchema() {
+  await client.batch(
         [
           `CREATE TABLE IF NOT EXISTS booking_tokens (
             token TEXT PRIMARY KEY,
@@ -173,9 +182,6 @@ function ready() {
           args: [],
         });
       }
-    })();
-  }
-  return readyPromise;
 }
 
 // ---------- 予約トークン(LINEからの導線) ----------

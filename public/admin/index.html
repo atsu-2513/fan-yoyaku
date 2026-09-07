@@ -83,6 +83,7 @@
           <tr>
             <th>メニュー名</th>
             <th>価格（円）</th>
+            <th>施術時間（分）</th>
             <th>公開する</th>
             <th>操作</th>
           </tr>
@@ -92,8 +93,10 @@
       <form id="menu-add-form" class="menu-add-form">
         <input type="text" id="new-menu-label" placeholder="新しいメニュー名" required />
         <input type="number" id="new-menu-price" placeholder="価格（円・任意）" min="0" />
+        <input type="number" id="new-menu-duration" placeholder="施術時間（分）" min="30" step="30" value="60" />
         <button type="submit" class="btn btn--ghost">メニューを追加</button>
       </form>
+      <p class="slot-hint">施術時間は30分単位で扱われます（例: 45分と入力すると60分になります）。</p>
       <p id="menu-message" class="empty-message" hidden></p>
     </section>
 
@@ -109,6 +112,7 @@
           <tr>
             <th>メニュー</th>
             <th>共通価格</th>
+            <th>施術時間</th>
             <th>提供する</th>
             <th>価格を変える場合（円）</th>
           </tr>

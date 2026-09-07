@@ -21,7 +21,7 @@ const {
 const {
   menuLabel,
   isBusinessDay,
-  getSlotHours,
+  getSlotTimes,
   invalidateSettingsCache,
   invalidateMenuCache,
 } = require('../businessHours');
@@ -74,7 +74,7 @@ router.get('/api/admin/staff/:id/slots', async (req, res) => {
   if (!staff) return res.status(404).json({ ok: false, error: 'not_found' });
 
   const businessDay = await isBusinessDay(date);
-  const candidateSlots = businessDay ? (await getSlotHours()).map((h) => `${String(h).padStart(2, '0')}:00`) : [];
+  const candidateSlots = businessDay ? await getSlotTimes() : [];
   const openSlots = await getOpenSlotsForStaff(staffId, date);
   const takenSlots = await getTakenSlots(staffId, date);
 
@@ -115,29 +115,38 @@ router.get('/api/admin/menus', async (req, res) => {
   res.json({ ok: true, menus: await listAllMenusAdmin() });
 });
 
+function parseDurationMinutes(value) {
+  const n = Number(value);
+  if (!Number.isFinite(n) || n <= 0) return null;
+  // 30分刻みに切り上げる(例: 45分と入力されたら60分扱い)
+  return Math.ceil(n / 30) * 30;
+}
+
 router.post('/api/admin/menus', async (req, res) => {
-  const { label, price } = req.body || {};
+  const { label, price, durationMinutes } = req.body || {};
   const trimmedLabel = typeof label === 'string' ? label.trim() : '';
   if (!trimmedLabel) return res.status(400).json({ ok: false, error: 'label_required' });
   const priceNum = price === '' || price === null || price === undefined ? null : Number(price);
   if (priceNum !== null && (!Number.isFinite(priceNum) || priceNum < 0)) {
     return res.status(400).json({ ok: false, error: 'invalid_price' });
   }
-  const menu = await createMenu({ label: trimmedLabel, price: priceNum });
+  const duration = parseDurationMinutes(durationMinutes) || 60;
+  const menu = await createMenu({ label: trimmedLabel, price: priceNum, durationMinutes: duration });
   invalidateMenuCache();
   res.json({ ok: true, menu });
 });
 
 router.put('/api/admin/menus/:id', async (req, res) => {
   const { id } = req.params;
-  const { label, price, active } = req.body || {};
+  const { label, price, durationMinutes, active } = req.body || {};
   const trimmedLabel = typeof label === 'string' ? label.trim() : '';
   if (!trimmedLabel) return res.status(400).json({ ok: false, error: 'label_required' });
   const priceNum = price === '' || price === null || price === undefined ? null : Number(price);
   if (priceNum !== null && (!Number.isFinite(priceNum) || priceNum < 0)) {
     return res.status(400).json({ ok: false, error: 'invalid_price' });
   }
-  const menu = await updateMenu(id, { label: trimmedLabel, price: priceNum, active: active !== false });
+  const duration = parseDurationMinutes(durationMinutes) || 60;
+  const menu = await updateMenu(id, { label: trimmedLabel, price: priceNum, durationMinutes: duration, active: active !== false });
   invalidateMenuCache();
   res.json({ ok: true, menu });
 });

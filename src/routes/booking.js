@@ -2,7 +2,6 @@ const express = require('express');
 const {
   getValidToken,
   markTokenUsed,
-  isSlotTaken,
   getTakenSlots,
   createReservation,
   listActiveStaff,
@@ -10,14 +9,15 @@ const {
   getOpenSlotsForStaff,
   listMenusForStaff,
 } = require('../db');
-const { isBusinessDay, menuLabel } = require('../businessHours');
+const { isBusinessDay, slotsForDate, menuLabel } = require('../businessHours');
+const { computeAvailableStartTimes } = require('../availability');
 const { pushText } = require('../line');
 const { sendMail } = require('../mail');
 
 const router = express.Router();
 
 // トークンが有効か確認（予約ページ読み込み時に使用）。あわせて指名可能なスタッフ一覧も返す。
-// メニューはスタッフごとに内容・価格が異なりうるため、ここでは返さない(スタッフ選択後に別途取得)。
+// メニューはスタッフごとに内容・価格・施術時間が異なりうるため、ここでは返さない(スタッフ選択後に別途取得)。
 router.get('/api/booking/token/:token', async (req, res) => {
   const row = await getValidToken(req.params.token);
   if (!row) return res.status(400).json({ ok: false, error: 'invalid_or_expired_token' });
@@ -25,7 +25,7 @@ router.get('/api/booking/token/:token', async (req, res) => {
   res.json({ ok: true, staff });
 });
 
-// 指名したスタッフに実際に提供されるメニュー一覧(価格込み)を返す
+// 指名したスタッフに実際に提供されるメニュー一覧(価格・施術時間込み)を返す
 router.get('/api/booking/menus', async (req, res) => {
   const { token, staffId } = req.query;
   const row = await getValidToken(token);
@@ -38,9 +38,10 @@ router.get('/api/booking/menus', async (req, res) => {
   res.json({ ok: true, menus });
 });
 
-// 指定スタッフ・指定日の空き状況を返す（そのスタッフが自分で解放した時間のうち、未予約のもの）
+// 指定スタッフ・指定日・指定メニュー(施術時間)の、実際に予約可能な開始時刻の一覧を返す
+// (そのスタッフが開放していて、かつ施術時間ぶん連続して他の予約と重ならない時刻だけを返す)
 router.get('/api/booking/availability', async (req, res) => {
-  const { token, date, staffId } = req.query;
+  const { token, date, staffId, menu } = req.query;
   const row = await getValidToken(token);
   if (!row) return res.status(400).json({ ok: false, error: 'invalid_or_expired_token' });
   if (!date) return res.status(400).json({ ok: false, error: 'date_required' });
@@ -49,13 +50,23 @@ router.get('/api/booking/availability', async (req, res) => {
   const staff = await getStaffById(staffIdNum);
   if (!staff || !staff.active) return res.status(400).json({ ok: false, error: 'invalid_staff' });
 
+  const staffMenus = await listMenusForStaff(staffIdNum);
+  const selectedMenu = staffMenus.find((m) => m.id === menu);
+  if (!selectedMenu) return res.status(400).json({ ok: false, error: 'invalid_menu' });
+
   if (!(await isBusinessDay(date))) {
     return res.json({ ok: true, date, businessDay: false, slots: [] });
   }
 
+  const candidateSlots = await slotsForDate(date);
   const openSlots = await getOpenSlotsForStaff(staffIdNum, date);
-  const taken = new Set(await getTakenSlots(staffIdNum, date));
-  const available = openSlots.filter((t) => !taken.has(t)).sort();
+  const takenSlots = await getTakenSlots(staffIdNum, date);
+  const available = computeAvailableStartTimes({
+    candidateSlots,
+    openSlots,
+    takenSlots,
+    durationMinutes: selectedMenu.durationMinutes,
+  });
   res.json({ ok: true, date, businessDay: true, slots: available });
 });
 
@@ -74,25 +85,31 @@ router.post('/api/booking', async (req, res) => {
   if (!staff || !staff.active) {
     return res.status(400).json({ ok: false, error: 'invalid_staff' });
   }
+  const staffMenus = await listMenusForStaff(staffIdNum);
+  const selectedMenu = staffMenus.find((m) => m.id === menu);
+  if (!selectedMenu) {
+    return res.status(400).json({ ok: false, error: 'invalid_menu' });
+  }
   if (!(await isBusinessDay(date))) {
     return res.status(400).json({ ok: false, error: 'invalid_date_or_time' });
   }
+  const candidateSlots = await slotsForDate(date);
   const openSlots = await getOpenSlotsForStaff(staffIdNum, date);
-  if (!openSlots.includes(time)) {
-    return res.status(400).json({ ok: false, error: 'invalid_date_or_time' });
-  }
-  const staffMenus = await listMenusForStaff(staffIdNum);
-  if (!staffMenus.some((m) => m.id === menu)) {
-    return res.status(400).json({ ok: false, error: 'invalid_menu' });
+  const takenSlots = await getTakenSlots(staffIdNum, date);
+  const available = computeAvailableStartTimes({
+    candidateSlots,
+    openSlots,
+    takenSlots,
+    durationMinutes: selectedMenu.durationMinutes,
+  });
+  if (!available.includes(time)) {
+    return res.status(409).json({ ok: false, error: 'slot_taken' });
   }
   const phonePattern = /^[0-9-]{9,14}$/;
   if (!phonePattern.test(phone)) {
     return res.status(400).json({ ok: false, error: 'invalid_phone' });
   }
   const consultationText = typeof consultation === 'string' ? consultation.trim().slice(0, 1000) : '';
-  if (await isSlotTaken(staffIdNum, date, time)) {
-    return res.status(409).json({ ok: false, error: 'slot_taken' });
-  }
 
   const reservation = await createReservation({
     lineUserId: row.line_user_id,
@@ -103,6 +120,7 @@ router.post('/api/booking', async (req, res) => {
     name: String(name).trim(),
     phone: String(phone).trim(),
     consultation: consultationText || null,
+    durationMinutes: selectedMenu.durationMinutes,
   });
   await markTokenUsed(token);
 

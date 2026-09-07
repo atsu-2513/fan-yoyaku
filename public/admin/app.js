@@ -315,6 +315,15 @@
     priceInput.value = m.price != null ? m.price : '';
     priceTd.appendChild(priceInput);
 
+    const durationTd = document.createElement('td');
+    const durationInput = document.createElement('input');
+    durationInput.className = 'menu-table-input';
+    durationInput.type = 'number';
+    durationInput.min = '30';
+    durationInput.step = '30';
+    durationInput.value = m.duration_minutes || 60;
+    durationTd.appendChild(durationInput);
+
     const activeTd = document.createElement('td');
     const activeCheck = document.createElement('input');
     activeCheck.type = 'checkbox';
@@ -335,6 +344,7 @@
           body: JSON.stringify({
             label: labelInput.value.trim(),
             price: priceInput.value === '' ? null : Number(priceInput.value),
+            durationMinutes: durationInput.value === '' ? 60 : Number(durationInput.value),
             active: activeCheck.checked,
           }),
         });
@@ -350,7 +360,7 @@
     });
     actionTd.appendChild(saveBtn);
 
-    tr.append(labelTd, priceTd, activeTd, actionTd);
+    tr.append(labelTd, priceTd, durationTd, activeTd, actionTd);
     return tr;
   }
 
@@ -361,6 +371,7 @@
       e.preventDefault();
       const labelInput = document.getElementById('new-menu-label');
       const priceInput = document.getElementById('new-menu-price');
+      const durationInput = document.getElementById('new-menu-duration');
       const message = document.getElementById('menu-message');
       const label = labelInput.value.trim();
       if (!label) return;
@@ -368,7 +379,11 @@
         const res = await fetch('/api/admin/menus', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ label, price: priceInput.value === '' ? null : Number(priceInput.value) }),
+          body: JSON.stringify({
+            label,
+            price: priceInput.value === '' ? null : Number(priceInput.value),
+            durationMinutes: durationInput.value === '' ? 60 : Number(durationInput.value),
+          }),
         });
         const data = await res.json();
         message.hidden = false;
@@ -379,6 +394,7 @@
         message.textContent = 'メニューを追加しました。';
         labelInput.value = '';
         priceInput.value = '';
+        durationInput.value = '60';
         loadMenuCatalog();
       } catch (err) {
         message.hidden = false;
@@ -435,6 +451,9 @@
         const priceTd = document.createElement('td');
         priceTd.textContent = m.price != null ? `¥${Number(m.price).toLocaleString()}` : '未設定';
 
+        const durationTd = document.createElement('td');
+        durationTd.textContent = `${m.duration_minutes || 60}分`;
+
         const enabledTd = document.createElement('td');
         const enabledCheck = document.createElement('input');
         enabledCheck.type = 'checkbox';
@@ -451,7 +470,7 @@
         overrideInput.value = o && o.price_override != null ? o.price_override : '';
         overrideTd.appendChild(overrideInput);
 
-        tr.append(labelTd, priceTd, enabledTd, overrideTd);
+        tr.append(labelTd, priceTd, durationTd, enabledTd, overrideTd);
         tbody.appendChild(tr);
       });
     } catch (err) {

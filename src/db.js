@@ -1,6 +1,7 @@
 const path = require('path');
 const crypto = require('crypto');
 const { createClient } = require('@libsql/client');
+const { expandRange } = require('./availability');
 
 // 本番(Render)は Turso(libSQL) のリモートDB、ローカル開発は環境変数未設定なら
 // data/fan-yoyaku.db をファイルDBとして使う（サーバーレス/コンテナ環境は
@@ -107,6 +108,20 @@ function ready() {
         await client.execute(`ALTER TABLE staff ADD COLUMN email TEXT`);
       }
 
+      // メニューごとの施術時間(分)。既存メニューには60分をデフォルトで設定
+      const menuColumns = await client.execute(`PRAGMA table_info(menus)`);
+      const hasDuration = menuColumns.rows.some((c) => c.name === 'duration_minutes');
+      if (!hasDuration) {
+        await client.execute(`ALTER TABLE menus ADD COLUMN duration_minutes INTEGER NOT NULL DEFAULT 60`);
+      }
+
+      // 予約作成時点でのメニュー施術時間のスナップショット(あとでメニューの時間設定を変えても、
+      // 過去の予約の空き枠計算がずれないように保持する)
+      const hasReservationDuration = columns.rows.some((c) => c.name === 'duration_minutes');
+      if (!hasReservationDuration) {
+        await client.execute(`ALTER TABLE reservations ADD COLUMN duration_minutes INTEGER`);
+      }
+
       // 定休日・営業時間のデフォルト値(未設定時のみ投入)
       const settingsResult = await client.execute(`SELECT key FROM settings`);
       const existingKeys = new Set(settingsResult.rows.map((r) => r.key));
@@ -125,16 +140,37 @@ function ready() {
       const menuCountResult = await client.execute(`SELECT COUNT(*) AS c FROM menus`);
       if (Number(menuCountResult.rows[0].c) === 0) {
         const defaultMenus = [
-          { id: 'cut', label: 'カット', price: null, sort: 0 },
-          { id: 'color', label: 'カラー', price: null, sort: 1 },
-          { id: 'perm', label: 'パーマ', price: null, sort: 2 },
+          { id: 'cut', label: 'カット', price: null, duration: 60, sort: 0 },
+          { id: 'color', label: 'カラー', price: null, duration: 90, sort: 1 },
+          { id: 'perm', label: 'パーマ', price: null, duration: 120, sort: 2 },
         ];
         for (const m of defaultMenus) {
           await client.execute({
-            sql: `INSERT INTO menus (id, label, price, active, sort_order, created_at) VALUES (?, ?, ?, 1, ?, ?)`,
-            args: [m.id, m.label, m.price, m.sort, new Date().toISOString()],
+            sql: `INSERT INTO menus (id, label, price, duration_minutes, active, sort_order, created_at) VALUES (?, ?, ?, ?, 1, ?, ?)`,
+            args: [m.id, m.label, m.price, m.duration, m.sort, new Date().toISOString()],
           });
         }
+      }
+
+      // 30分刻みへの移行(初回のみ): これまでは「10:00を開放」＝1時間丸ごと空いている、という意味だったため、
+      // 新しい30分刻みでも同じ意味になるよう、既存の「HH:00」開放枠には「HH:30」も開放済みとして補完する。
+      const migratedFlag = await client.execute({
+        sql: `SELECT value FROM settings WHERE key = ?`,
+        args: ['migrated_half_hour_open_slots'],
+      });
+      if (migratedFlag.rows.length === 0) {
+        const hourSlots = await client.execute(`SELECT staff_id, date, time FROM staff_open_slots WHERE time LIKE '%:00'`);
+        for (const row of hourSlots.rows) {
+          const hh = row.time.split(':')[0];
+          await client.execute({
+            sql: `INSERT OR IGNORE INTO staff_open_slots (staff_id, date, time, created_at) VALUES (?, ?, ?, ?)`,
+            args: [row.staff_id, row.date, `${hh}:30`, new Date().toISOString()],
+          });
+        }
+        await client.execute({
+          sql: `INSERT INTO settings (key, value) VALUES ('migrated_half_hour_open_slots', '1')
+                ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
+        });
       }
     })();
   }
@@ -289,23 +325,23 @@ async function getMenuById(id) {
   return result.rows[0] || null;
 }
 
-async function createMenu({ label, price }) {
+async function createMenu({ label, price, durationMinutes }) {
   await ready();
   const id = `menu_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
   const maxSort = await client.execute(`SELECT COALESCE(MAX(sort_order), -1) AS m FROM menus`);
   const sortOrder = Number(maxSort.rows[0].m) + 1;
   await client.execute({
-    sql: `INSERT INTO menus (id, label, price, active, sort_order, created_at) VALUES (?, ?, ?, 1, ?, ?)`,
-    args: [id, label, price, sortOrder, new Date().toISOString()],
+    sql: `INSERT INTO menus (id, label, price, duration_minutes, active, sort_order, created_at) VALUES (?, ?, ?, ?, 1, ?, ?)`,
+    args: [id, label, price, durationMinutes || 60, sortOrder, new Date().toISOString()],
   });
   return getMenuById(id);
 }
 
-async function updateMenu(id, { label, price, active }) {
+async function updateMenu(id, { label, price, durationMinutes, active }) {
   await ready();
   await client.execute({
-    sql: `UPDATE menus SET label = ?, price = ?, active = ? WHERE id = ?`,
-    args: [label, price, active ? 1 : 0, id],
+    sql: `UPDATE menus SET label = ?, price = ?, duration_minutes = ?, active = ? WHERE id = ?`,
+    args: [label, price, durationMinutes || 60, active ? 1 : 0, id],
   });
   return getMenuById(id);
 }
@@ -343,7 +379,7 @@ async function listMenusForStaff(staffId) {
     .map((m) => {
       const o = overrideMap.get(m.id);
       const price = o && o.price_override !== null && o.price_override !== undefined ? o.price_override : m.price;
-      return { id: m.id, label: m.label, price };
+      return { id: m.id, label: m.label, price, durationMinutes: m.duration_minutes || 60 };
     });
 }
 
@@ -397,31 +433,28 @@ async function copyOpenSlotsToDates(staffId, sourceDate, targetDates) {
 
 // ---------- 予約 ----------
 
-async function isSlotTaken(staffId, date, time) {
-  await ready();
-  const result = await client.execute({
-    sql: `SELECT COUNT(*) AS c FROM reservations
-          WHERE staff_id = ? AND date = ? AND time = ? AND status != 'cancelled'`,
-    args: [staffId, date, time],
-  });
-  return Number(result.rows[0].c) > 0;
-}
-
+// そのスタッフ・その日に予約が入っている(施術時間ぶん)コマを、開始時刻だけでなく
+// 30分刻みで展開したコマ一覧として返す(施術時間が複数コマにまたがる予約に対応するため)
 async function getTakenSlots(staffId, date) {
   await ready();
   const result = await client.execute({
-    sql: `SELECT time FROM reservations WHERE staff_id = ? AND date = ? AND status != 'cancelled'`,
+    sql: `SELECT time, duration_minutes FROM reservations
+          WHERE staff_id = ? AND date = ? AND status != 'cancelled'`,
     args: [staffId, date],
   });
-  return result.rows.map((r) => r.time);
+  const taken = new Set();
+  for (const r of result.rows) {
+    for (const t of expandRange(r.time, r.duration_minutes || 60)) taken.add(t);
+  }
+  return Array.from(taken);
 }
 
-async function createReservation({ lineUserId, staffId, date, time, menu, name, phone, consultation }) {
+async function createReservation({ lineUserId, staffId, date, time, menu, name, phone, consultation, durationMinutes }) {
   await ready();
   const insert = await client.execute({
-    sql: `INSERT INTO reservations (line_user_id, staff_id, date, time, menu, name, phone, consultation, status, created_at)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?)`,
-    args: [lineUserId, staffId, date, time, menu, name, phone, consultation || null, new Date().toISOString()],
+    sql: `INSERT INTO reservations (line_user_id, staff_id, date, time, menu, name, phone, consultation, duration_minutes, status, created_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?)`,
+    args: [lineUserId, staffId, date, time, menu, name, phone, consultation || null, durationMinutes || 60, new Date().toISOString()],
   });
   return getReservation(Number(insert.lastInsertRowid));
 }
@@ -540,7 +573,6 @@ module.exports = {
   closeSlot,
   getOpenSlotsForStaff,
   isSlotOpenForStaff,
-  isSlotTaken,
   getTakenSlots,
   createReservation,
   listReservationsWithStaff,

@@ -81,7 +81,7 @@
     });
   }
 
-  // ---------- Step 2: Calendar ----------
+  // ---------- Step 3: Calendar ----------
   function renderCalendar() {
     const grid = document.getElementById('calendar-grid');
     const label = document.getElementById('month-label');
@@ -124,7 +124,7 @@
   });
 
   async function selectDate(dateStr) {
-    if (!state.selectedStaff) return;
+    if (!state.selectedStaff || !state.selectedMenu) return;
     state.selectedDate = dateStr;
     state.selectedTime = null;
     renderCalendar();
@@ -140,7 +140,7 @@
       const res = await fetch(
         `/api/booking/availability?token=${encodeURIComponent(state.token)}&date=${encodeURIComponent(
           dateStr
-        )}&staffId=${encodeURIComponent(state.selectedStaff.id)}`
+        )}&staffId=${encodeURIComponent(state.selectedStaff.id)}&menu=${encodeURIComponent(state.selectedMenu.id)}`
       );
       const data = await res.json();
       if (!res.ok || !data.ok) {
@@ -165,7 +165,7 @@
           state.selectedTime = time;
           document.querySelectorAll('.slot-btn').forEach((b) => b.classList.remove('is-selected'));
           btn.classList.add('is-selected');
-          goToStep(3);
+          goToStep(4);
         });
         slotsEl.appendChild(btn);
       });
@@ -174,7 +174,7 @@
     }
   }
 
-  // ---------- Step 3: Menu ----------
+  // ---------- Step 2: Menu ----------
   async function loadMenusForStaff(staffId) {
     const wrap = document.getElementById('menu-options');
     wrap.innerHTML = '<p class="time-empty">読み込み中...</p>';
@@ -191,13 +191,15 @@
   }
 
   function menuOptionText(menu) {
-    return menu.price != null && menu.price !== '' ? `${menu.label}（¥${Number(menu.price).toLocaleString()}）` : menu.label;
+    const priceText = menu.price != null && menu.price !== '' ? `¥${Number(menu.price).toLocaleString()}・` : '';
+    const durationText = menu.durationMinutes ? `約${menu.durationMinutes}分` : '';
+    const detail = [priceText, durationText].filter(Boolean).join('');
+    return detail ? `${menu.label}（${detail}）` : menu.label;
   }
 
   function renderMenuOptions() {
     const wrap = document.getElementById('menu-options');
     wrap.innerHTML = '';
-    document.getElementById('to-step-4').disabled = true;
     if (!state.menus.length) {
       wrap.innerHTML = '<p class="time-empty">現在このスタッフが対応できるメニューがありません。お手数ですが店舗にお問い合わせください。</p>';
       return;
@@ -208,15 +210,17 @@
       el.textContent = menuOptionText(menu);
       el.addEventListener('click', () => {
         state.selectedMenu = menu;
+        state.selectedDate = null;
+        state.selectedTime = null;
         document.querySelectorAll('#menu-options .menu-option').forEach((o) => o.classList.remove('is-selected'));
         el.classList.add('is-selected');
-        document.getElementById('to-step-4').disabled = false;
+        document.getElementById('time-section').hidden = true;
+        renderCalendar();
+        goToStep(3);
       });
       wrap.appendChild(el);
     });
   }
-
-  document.getElementById('to-step-4').addEventListener('click', () => goToStep(4));
 
   // ---------- Step navigation ----------
   function goToStep(n) {

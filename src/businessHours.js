@@ -36,11 +36,16 @@ async function getBusinessSettings() {
   return loadSettings();
 }
 
-async function getSlotHours() {
+// 営業時間内の30分刻みの時刻一覧('09:00','09:30',...)。最終コマは閉店時刻の30分前まで。
+async function getSlotTimes() {
   const s = await loadSettings();
-  const hours = [];
-  for (let h = s.openHour; h < s.closeHour; h++) hours.push(h);
-  return hours;
+  const times = [];
+  for (let mins = s.openHour * 60; mins < s.closeHour * 60; mins += 30) {
+    const h = Math.floor(mins / 60);
+    const m = mins % 60;
+    times.push(`${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`);
+  }
+  return times;
 }
 
 async function isBusinessDay(dateStr) {
@@ -52,8 +57,7 @@ async function isBusinessDay(dateStr) {
 
 async function slotsForDate(dateStr) {
   if (!(await isBusinessDay(dateStr))) return [];
-  const hours = await getSlotHours();
-  return hours.map((h) => `${String(h).padStart(2, '0')}:00`);
+  return getSlotTimes();
 }
 
 // メニューIDが(有効な)メニューとして存在するか。特定スタッフに提供されているかは
@@ -83,7 +87,7 @@ function tomorrowJST() {
 
 module.exports = {
   getBusinessSettings,
-  getSlotHours,
+  getSlotTimes,
   isBusinessDay,
   slotsForDate,
   isValidMenu,

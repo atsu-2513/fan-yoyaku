@@ -12,7 +12,7 @@ const {
   cancelReservation,
   copyOpenSlotsToDates,
 } = require('../db');
-const { isBusinessDay, getSlotHours, menuLabel } = require('../businessHours');
+const { isBusinessDay, getSlotTimes, menuLabel } = require('../businessHours');
 const { hashPassword, verifyPassword, createSessionCookie, clearSessionCookie, getStaffIdFromRequest } = require('../auth');
 const { pushText } = require('../line');
 
@@ -70,7 +70,7 @@ router.get('/staff/api/slots', requireStaffAuth, async (req, res) => {
   const { date } = req.query;
   if (!date) return res.status(400).json({ ok: false, error: 'date_required' });
   const businessDay = await isBusinessDay(date);
-  const candidateSlots = businessDay ? (await getSlotHours()).map((h) => `${String(h).padStart(2, '0')}:00`) : [];
+  const candidateSlots = businessDay ? await getSlotTimes() : [];
   const openSlots = await getOpenSlotsForStaff(req.staff.id, date);
   res.json({ ok: true, date, businessDay, candidateSlots, openSlots });
 });

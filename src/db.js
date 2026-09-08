@@ -105,6 +105,36 @@ async function initSchema() {
             sort_order INTEGER NOT NULL DEFAULT 0,
             created_at TEXT NOT NULL
           )`,
+          `CREATE TABLE IF NOT EXISTS candidate_requests (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            line_user_id TEXT NOT NULL,
+            staff_id INTEGER NOT NULL,
+            menu TEXT NOT NULL,
+            name TEXT NOT NULL,
+            phone TEXT NOT NULL,
+            consultation TEXT,
+            duration_minutes INTEGER,
+            status TEXT NOT NULL DEFAULT 'pending',
+            confirmed_reservation_id INTEGER,
+            confirmed_rank INTEGER,
+            created_at TEXT NOT NULL
+          )`,
+          `CREATE TABLE IF NOT EXISTS candidate_dates (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            request_id INTEGER NOT NULL,
+            rank INTEGER NOT NULL,
+            date TEXT NOT NULL,
+            time TEXT NOT NULL
+          )`,
+          `CREATE TABLE IF NOT EXISTS waitlist_alerts (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            request_id INTEGER NOT NULL,
+            staff_id INTEGER NOT NULL,
+            date TEXT NOT NULL,
+            time TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT 'open',
+            created_at TEXT NOT NULL
+          )`,
         ],
         'write'
       );
@@ -153,6 +183,13 @@ async function initSchema() {
       const hasReservationDuration = columns.rows.some((c) => c.name === 'duration_minutes');
       if (!hasReservationDuration) {
         await client.execute(`ALTER TABLE reservations ADD COLUMN duration_minutes INTEGER`);
+      }
+
+      // 候補日リクエストから確定した予約の場合、元のリクエストとリンクしておく
+      // (キャンセル時の空き通知の判定に使用する)
+      const hasCandidateRequestId = columns.rows.some((c) => c.name === 'candidate_request_id');
+      if (!hasCandidateRequestId) {
+        await client.execute(`ALTER TABLE reservations ADD COLUMN candidate_request_id INTEGER`);
       }
 
       // 定休日・営業時間のデフォルト値(未設定時のみ投入)
@@ -756,6 +793,205 @@ async function markReminderSent(id) {
   });
 }
 
+// ---------- 候補日リクエスト(お客様が複数の希望日時を提示し、スタッフが1つを確定する) ----------
+
+async function createCandidateRequest({ lineUserId, staffId, menu, name, phone, consultation, durationMinutes, dates }) {
+  await ready();
+  const insert = await client.execute({
+    sql: `INSERT INTO candidate_requests (line_user_id, staff_id, menu, name, phone, consultation, duration_minutes, status, created_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', ?)`,
+    args: [lineUserId, staffId, menu, name, phone, consultation || null, durationMinutes || 60, new Date().toISOString()],
+  });
+  const requestId = Number(insert.lastInsertRowid);
+  for (let i = 0; i < dates.length; i++) {
+    const d = dates[i];
+    await client.execute({
+      sql: `INSERT INTO candidate_dates (request_id, rank, date, time) VALUES (?, ?, ?, ?)`,
+      args: [requestId, i + 1, d.date, d.time],
+    });
+  }
+  return getCandidateRequest(requestId);
+}
+
+async function getCandidateRequest(id) {
+  await ready();
+  const reqResult = await client.execute({
+    sql: `SELECT * FROM candidate_requests WHERE id = ?`,
+    args: [id],
+  });
+  const request = reqResult.rows[0];
+  if (!request) return null;
+  const datesResult = await client.execute({
+    sql: `SELECT * FROM candidate_dates WHERE request_id = ? ORDER BY rank ASC`,
+    args: [id],
+  });
+  return { ...request, dates: datesResult.rows };
+}
+
+async function attachDatesToRequests(requests) {
+  const result = [];
+  for (const r of requests) {
+    const datesResult = await client.execute({
+      sql: `SELECT * FROM candidate_dates WHERE request_id = ? ORDER BY rank ASC`,
+      args: [r.id],
+    });
+    result.push({ ...r, dates: datesResult.rows });
+  }
+  return result;
+}
+
+// スタッフ画面用: 自分宛の候補日リクエスト一覧(未確定を優先して新しい順)
+async function listCandidateRequestsForStaff(staffId) {
+  await ready();
+  const result = await client.execute({
+    sql: `SELECT * FROM candidate_requests WHERE staff_id = ? ORDER BY (status = 'pending') DESC, created_at DESC`,
+    args: [staffId],
+  });
+  return attachDatesToRequests(result.rows);
+}
+
+// 管理画面用: 全スタッフぶんの候補日リクエスト一覧
+async function listAllCandidateRequestsWithStaff() {
+  await ready();
+  const result = await client.execute(
+    `SELECT r.*, s.name AS staff_name
+     FROM candidate_requests r
+     LEFT JOIN staff s ON s.id = r.staff_id
+     ORDER BY (r.status = 'pending') DESC, r.created_at DESC`
+  );
+  return attachDatesToRequests(result.rows);
+}
+
+// 候補日のうち1つ(rank)を選んで確定させ、実際の予約(reservations)を作成する
+async function confirmCandidateRequest(id, rank) {
+  await ready();
+  const request = await getCandidateRequest(id);
+  if (!request) return null;
+  const chosen = request.dates.find((d) => Number(d.rank) === Number(rank));
+  if (!chosen) return null;
+
+  const insert = await client.execute({
+    sql: `INSERT INTO reservations (line_user_id, staff_id, date, time, menu, name, phone, consultation, duration_minutes, status, candidate_request_id, created_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'confirmed', ?, ?)`,
+    args: [
+      request.line_user_id,
+      request.staff_id,
+      chosen.date,
+      chosen.time,
+      request.menu,
+      request.name,
+      request.phone,
+      request.consultation || null,
+      request.duration_minutes || 60,
+      id,
+      new Date().toISOString(),
+    ],
+  });
+  const reservationId = Number(insert.lastInsertRowid);
+
+  await client.execute({
+    sql: `UPDATE candidate_requests SET status = 'confirmed', confirmed_reservation_id = ?, confirmed_rank = ? WHERE id = ?`,
+    args: [reservationId, rank, id],
+  });
+
+  return { request: await getCandidateRequest(id), reservation: await getReservation(reservationId) };
+}
+
+// どの候補日でも都合がつかなかった場合、リクエストを見送りにする
+async function declineCandidateRequest(id) {
+  await ready();
+  await client.execute({
+    sql: `UPDATE candidate_requests SET status = 'cancelled' WHERE id = ?`,
+    args: [id],
+  });
+  return getCandidateRequest(id);
+}
+
+// キャンセルで空いた枠(staffId, date, time)が、まだ第一希望を叶えられていない
+// 候補日リクエストの第一希望と一致する場合に、そのリクエストを返す
+// (未確定のリクエスト、または「第一希望以外の日で確定済み」のリクエストが対象)
+async function findWaitlistMatches(staffId, date, time) {
+  await ready();
+  const result = await client.execute({
+    sql: `SELECT r.*, d.id AS date_id
+          FROM candidate_requests r
+          JOIN candidate_dates d ON d.request_id = r.id AND d.rank = 1
+          WHERE r.staff_id = ? AND d.date = ? AND d.time = ?
+            AND (
+              r.status = 'pending'
+              OR (r.status = 'confirmed' AND (r.confirmed_rank IS NULL OR r.confirmed_rank != 1))
+            )`,
+    args: [staffId, date, time],
+  });
+  return attachDatesToRequests(result.rows);
+}
+
+async function createWaitlistAlert({ requestId, staffId, date, time }) {
+  await ready();
+  const insert = await client.execute({
+    sql: `INSERT INTO waitlist_alerts (request_id, staff_id, date, time, status, created_at) VALUES (?, ?, ?, ?, 'open', ?)`,
+    args: [requestId, staffId, date, time, new Date().toISOString()],
+  });
+  return getWaitlistAlert(Number(insert.lastInsertRowid));
+}
+
+async function getWaitlistAlert(id) {
+  await ready();
+  const result = await client.execute({
+    sql: `SELECT a.*, r.name, r.phone, r.line_user_id, r.menu, r.staff_id AS request_staff_id
+          FROM waitlist_alerts a
+          JOIN candidate_requests r ON r.id = a.request_id
+          WHERE a.id = ?`,
+    args: [id],
+  });
+  return result.rows[0] || null;
+}
+
+async function listOpenWaitlistAlertsForStaff(staffId) {
+  await ready();
+  const result = await client.execute({
+    sql: `SELECT a.*, r.name, r.phone, r.line_user_id, r.menu
+          FROM waitlist_alerts a
+          JOIN candidate_requests r ON r.id = a.request_id
+          WHERE a.staff_id = ? AND a.status = 'open'
+          ORDER BY a.created_at DESC`,
+    args: [staffId],
+  });
+  return result.rows;
+}
+
+async function listAllOpenWaitlistAlerts() {
+  await ready();
+  const result = await client.execute(
+    `SELECT a.*, r.name, r.phone, r.line_user_id, r.menu, s.name AS staff_name
+     FROM waitlist_alerts a
+     JOIN candidate_requests r ON r.id = a.request_id
+     LEFT JOIN staff s ON s.id = a.staff_id
+     WHERE a.status = 'open'
+     ORDER BY a.created_at DESC`
+  );
+  return result.rows;
+}
+
+async function markWaitlistAlertStatus(id, status) {
+  await ready();
+  await client.execute({
+    sql: `UPDATE waitlist_alerts SET status = ? WHERE id = ?`,
+    args: [status, id],
+  });
+  return getWaitlistAlert(id);
+}
+
+// 確定済み予約の日時を、画面上からそのまま変更する(キャンセル＋再予約の代わり)
+async function updateReservationDateTime(id, { date, time }) {
+  await ready();
+  await client.execute({
+    sql: `UPDATE reservations SET date = ?, time = ? WHERE id = ?`,
+    args: [date, time, id],
+  });
+  return getReservation(id);
+}
+
 module.exports = {
   client,
   createBookingToken,
@@ -786,6 +1022,19 @@ module.exports = {
   getTakenSlots,
   getTakenSlotsForRange,
   createReservation,
+  createCandidateRequest,
+  getCandidateRequest,
+  listCandidateRequestsForStaff,
+  listAllCandidateRequestsWithStaff,
+  confirmCandidateRequest,
+  declineCandidateRequest,
+  findWaitlistMatches,
+  createWaitlistAlert,
+  getWaitlistAlert,
+  listOpenWaitlistAlertsForStaff,
+  listAllOpenWaitlistAlerts,
+  markWaitlistAlertStatus,
+  updateReservationDateTime,
   upsertCustomer,
   listCustomersForStaff,
   getCustomerById,

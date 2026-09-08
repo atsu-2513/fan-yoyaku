@@ -5,6 +5,7 @@ const {
   getTakenSlots,
   getTakenSlotsForRange,
   createReservation,
+  createCandidateRequest,
   upsertCustomer,
   listQuizQuestionsWithOptions,
   listActiveStaff,
@@ -237,6 +238,111 @@ router.post('/api/booking', async (req, res) => {
   }
 
   res.json({ ok: true, reservation });
+});
+
+// 候補日リクエスト作成(お客様が複数の希望日時(第1〜第3希望など)を提示し、
+// 後でスタッフ/オーナーがそのうち1つを確定する)
+router.post('/api/booking/candidates', async (req, res) => {
+  const { token, staffId, menu, name, phone, consultation, dates } = req.body || {};
+
+  const row = await getValidToken(token);
+  if (!row) return res.status(400).json({ ok: false, error: 'invalid_or_expired_token' });
+
+  const staffIdNum = Number(staffId);
+  if (!staffIdNum || !menu || !name || !phone || !Array.isArray(dates) || dates.length === 0) {
+    return res.status(400).json({ ok: false, error: 'missing_fields' });
+  }
+  if (dates.length > 3) {
+    return res.status(400).json({ ok: false, error: 'too_many_dates' });
+  }
+  const staff = await getStaffById(staffIdNum);
+  if (!staff || !staff.active) {
+    return res.status(400).json({ ok: false, error: 'invalid_staff' });
+  }
+  const staffMenus = await listMenusForStaff(staffIdNum);
+  const selectedMenu = staffMenus.find((m) => m.id === menu);
+  if (!selectedMenu) {
+    return res.status(400).json({ ok: false, error: 'invalid_menu' });
+  }
+
+  const cleanDates = [];
+  for (const d of dates) {
+    const date = d && typeof d.date === 'string' ? d.date : '';
+    const time = d && typeof d.time === 'string' ? d.time : '';
+    if (!date || !time) return res.status(400).json({ ok: false, error: 'invalid_date_or_time' });
+    if (!(await isBusinessDay(date))) {
+      return res.status(400).json({ ok: false, error: 'invalid_date_or_time' });
+    }
+    const candidateSlots = await slotsForDate(date);
+    const openSlots = await getOpenSlotsForStaff(staffIdNum, date);
+    const takenSlots = await getTakenSlots(staffIdNum, date);
+    const available = computeAvailableStartTimes({
+      candidateSlots,
+      openSlots,
+      takenSlots,
+      durationMinutes: selectedMenu.durationMinutes,
+    });
+    if (!available.includes(time)) {
+      return res.status(409).json({ ok: false, error: 'slot_taken', date, time });
+    }
+    cleanDates.push({ date, time });
+  }
+  const phonePattern = /^[0-9-]{9,14}$/;
+  if (!phonePattern.test(phone)) {
+    return res.status(400).json({ ok: false, error: 'invalid_phone' });
+  }
+  const consultationText = typeof consultation === 'string' ? consultation.trim().slice(0, 1000) : '';
+
+  const request = await createCandidateRequest({
+    lineUserId: row.line_user_id,
+    staffId: staffIdNum,
+    menu,
+    name: String(name).trim(),
+    phone: String(phone).trim(),
+    consultation: consultationText || null,
+    durationMinutes: selectedMenu.durationMinutes,
+    dates: cleanDates,
+  });
+  await markTokenUsed(token);
+
+  try {
+    await upsertCustomer(staffIdNum, request.name, request.phone);
+  } catch (err) {
+    console.error('顧客リストへの登録に失敗しました:', err);
+  }
+
+  try {
+    await pushText(
+      row.line_user_id,
+      `${request.name}様\n候補日を受け付けました。\n\n` +
+        cleanDates.map((d, i) => `第${i + 1}希望: ${d.date} ${d.time}`).join('\n') +
+        `\n担当: ${staff.name}\nメニュー: ${await menuLabel(menu)}\n\n` +
+        `店舗で確認のうえ、確定のご連絡をいたします。`
+    );
+  } catch (err) {
+    console.error('LINE push (候補日受付) failed:', err);
+  }
+
+  try {
+    const recipients = [staff.email, process.env.OWNER_EMAIL].filter(Boolean);
+    if (recipients.length) {
+      await sendMail({
+        to: recipients,
+        subject: `【候補日リクエスト】${staff.name}様指名`,
+        text:
+          `候補日リクエストが届きました。\n\n` +
+          cleanDates.map((d, i) => `第${i + 1}希望: ${d.date} ${d.time}`).join('\n') +
+          `\n担当: ${staff.name}\nメニュー: ${await menuLabel(menu)}\n` +
+          `お名前: ${request.name}\n電話番号: ${request.phone}\n` +
+          (consultationText ? `\nご相談内容:\n${consultationText}\n` : '') +
+          (process.env.BASE_URL ? `\n管理画面で確認: ${process.env.BASE_URL}/admin/` : ''),
+      });
+    }
+  } catch (err) {
+    console.error('メール通知(候補日リクエスト)の送信に失敗しました:', err);
+  }
+
+  res.json({ ok: true, request });
 });
 
 module.exports = router;

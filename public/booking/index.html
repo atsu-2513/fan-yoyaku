@@ -37,7 +37,15 @@
       <!-- Step 2: メニュー選択(施術時間によって選べる日時が変わるため、日時より先に選ぶ) -->
       <section id="step-2" class="step">
         <h3>メニューを選択してください</h3>
+        <button type="button" id="quiz-start-btn" class="btn btn--ghost" style="margin-bottom:14px;" hidden>迷ったら質問に答えて探す</button>
         <div id="menu-options" class="menu-options"></div>
+
+        <div id="quiz-section" hidden>
+          <div id="quiz-question-view"></div>
+          <div id="quiz-result-view" hidden></div>
+          <button type="button" id="quiz-cancel-btn" class="btn btn--ghost" style="margin-top:12px;">一覧から選び直す</button>
+        </div>
+
         <div class="step-actions">
           <button type="button" class="btn btn--ghost" data-back="1">戻る</button>
         </div>

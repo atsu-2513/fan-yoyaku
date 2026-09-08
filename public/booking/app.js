@@ -16,6 +16,9 @@
     selectedTime: null,
     selectedMenu: null,
     monthAvailability: {}, // { 'YYYY-MM-DD': 'available' | 'none' | 'closed' }
+    quizQuestions: [],
+    quizAnswers: [], // 選んだ順に menu_id を積んでいく
+    quizIndex: 0,
   };
 
   function showScreen(el) {
@@ -74,9 +77,12 @@
         document.querySelectorAll('#staff-options .menu-option').forEach((o) => o.classList.remove('is-selected'));
         el.classList.add('is-selected');
         document.getElementById('time-section').hidden = true;
+        document.getElementById('quiz-section').hidden = true;
+        document.getElementById('menu-options').hidden = false;
         state.monthAvailability = {};
         renderCalendar();
         await loadMenusForStaff(staff.id);
+        await loadQuizForStaff(staff.id);
         goToStep(2);
       });
       wrap.appendChild(el);
@@ -221,6 +227,118 @@
       state.menus = [];
     }
     renderMenuOptions();
+  }
+
+  // 「迷ったら質問に答えて探す」用の質問一覧を読み込む(質問が1つもなければボタン自体を隠す)
+  async function loadQuizForStaff(staffId) {
+    const quizBtn = document.getElementById('quiz-start-btn');
+    try {
+      const res = await fetch(
+        `/api/booking/quiz?token=${encodeURIComponent(state.token)}&staffId=${encodeURIComponent(staffId)}`
+      );
+      const data = await res.json();
+      state.quizQuestions = res.ok && data.ok ? data.questions || [] : [];
+    } catch (err) {
+      state.quizQuestions = [];
+    }
+    quizBtn.hidden = state.quizQuestions.length === 0;
+  }
+
+  function exitQuiz() {
+    document.getElementById('quiz-section').hidden = true;
+    document.getElementById('quiz-result-view').hidden = true;
+    document.getElementById('menu-options').hidden = false;
+    document.getElementById('quiz-start-btn').hidden = state.quizQuestions.length === 0;
+  }
+
+  document.getElementById('quiz-start-btn').addEventListener('click', () => {
+    state.quizAnswers = [];
+    state.quizIndex = 0;
+    document.getElementById('menu-options').hidden = true;
+    document.getElementById('quiz-start-btn').hidden = true;
+    document.getElementById('quiz-result-view').hidden = true;
+    document.getElementById('quiz-section').hidden = false;
+    renderQuizQuestion();
+  });
+
+  document.getElementById('quiz-cancel-btn').addEventListener('click', exitQuiz);
+
+  function renderQuizQuestion() {
+    const view = document.getElementById('quiz-question-view');
+    const resultView = document.getElementById('quiz-result-view');
+    resultView.hidden = true;
+    view.hidden = false;
+    const q = state.quizQuestions[state.quizIndex];
+    if (!q) {
+      finishQuiz();
+      return;
+    }
+    view.innerHTML = '';
+    const heading = document.createElement('h3');
+    heading.textContent = `${q.prompt}`;
+    view.appendChild(heading);
+    const optionsWrap = document.createElement('div');
+    optionsWrap.className = 'menu-options';
+    (q.options || []).forEach((o) => {
+      const el = document.createElement('div');
+      el.className = 'menu-option';
+      el.textContent = o.label;
+      el.addEventListener('click', () => {
+        state.quizAnswers.push(o.menu_id);
+        state.quizIndex += 1;
+        renderQuizQuestion();
+      });
+      optionsWrap.appendChild(el);
+    });
+    view.appendChild(optionsWrap);
+  }
+
+  function finishQuiz() {
+    document.getElementById('quiz-question-view').hidden = true;
+    const resultView = document.getElementById('quiz-result-view');
+    resultView.hidden = false;
+
+    const counts = {};
+    state.quizAnswers.forEach((menuId) => {
+      counts[menuId] = (counts[menuId] || 0) + 1;
+    });
+    let bestMenuId = null;
+    let bestCount = -1;
+    // state.menus はそのスタッフの提供順(sort_order)なので、同数の場合はその順で最初のものを採用する
+    state.menus.forEach((m) => {
+      const c = counts[m.id] || 0;
+      if (c > bestCount) {
+        bestCount = c;
+        bestMenuId = m.id;
+      }
+    });
+    const recommended = state.menus.find((m) => m.id === bestMenuId);
+
+    resultView.innerHTML = '';
+    if (!recommended) {
+      resultView.innerHTML = '<p class="time-empty">おすすめを見つけられませんでした。一覧からお選びください。</p>';
+      return;
+    }
+    const heading = document.createElement('h3');
+    heading.textContent = 'おすすめのメニューはこちらです';
+    const card = document.createElement('div');
+    card.className = 'menu-option is-selected';
+    card.textContent = menuOptionText(recommended);
+    const chooseBtn = document.createElement('button');
+    chooseBtn.type = 'button';
+    chooseBtn.className = 'btn';
+    chooseBtn.style.marginTop = '12px';
+    chooseBtn.textContent = 'このメニューにする';
+    chooseBtn.addEventListener('click', () => {
+      state.selectedMenu = recommended;
+      state.selectedDate = null;
+      state.selectedTime = null;
+      document.getElementById('time-section').hidden = true;
+      exitQuiz();
+      loadMonthAvailability();
+      goToStep(3);
+    });
+    resultView.append(heading, card, chooseBtn);
   }
 
   function menuOptionText(menu) {

@@ -91,6 +91,20 @@ async function initSchema() {
             updated_at TEXT NOT NULL,
             UNIQUE(staff_id, phone)
           )`,
+          `CREATE TABLE IF NOT EXISTS quiz_questions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            prompt TEXT NOT NULL,
+            sort_order INTEGER NOT NULL DEFAULT 0,
+            created_at TEXT NOT NULL
+          )`,
+          `CREATE TABLE IF NOT EXISTS quiz_options (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            question_id INTEGER NOT NULL,
+            label TEXT NOT NULL,
+            menu_id TEXT NOT NULL,
+            sort_order INTEGER NOT NULL DEFAULT 0,
+            created_at TEXT NOT NULL
+          )`,
         ],
         'write'
       );
@@ -575,6 +589,75 @@ async function deleteCustomer(id) {
   await client.execute({ sql: `DELETE FROM customers WHERE id = ?`, args: [id] });
 }
 
+// ---------- メニュー診断クイズ ----------
+// お客様がいくつかの質問に答えると、それぞれの回答に紐づいたメニューの中から
+// 一番多く選ばれたメニューをおすすめする、という単純な多数決方式(集計は予約フォーム側で行う)。
+// 質問・選択肢はオーナーが管理画面から自由に追加・編集できる。
+async function listQuizQuestionsWithOptions() {
+  await ready();
+  const qResult = await client.execute(`SELECT * FROM quiz_questions ORDER BY sort_order ASC, id ASC`);
+  const oResult = await client.execute(`SELECT * FROM quiz_options ORDER BY sort_order ASC, id ASC`);
+  const optionsByQuestion = {};
+  for (const o of oResult.rows) {
+    if (!optionsByQuestion[o.question_id]) optionsByQuestion[o.question_id] = [];
+    optionsByQuestion[o.question_id].push(o);
+  }
+  return qResult.rows.map((q) => ({ ...q, options: optionsByQuestion[q.id] || [] }));
+}
+
+async function createQuizQuestion(prompt) {
+  await ready();
+  const maxSort = await client.execute(`SELECT COALESCE(MAX(sort_order), -1) AS m FROM quiz_questions`);
+  const sortOrder = Number(maxSort.rows[0].m) + 1;
+  await client.execute({
+    sql: `INSERT INTO quiz_questions (prompt, sort_order, created_at) VALUES (?, ?, ?)`,
+    args: [prompt, sortOrder, new Date().toISOString()],
+  });
+  return listQuizQuestionsWithOptions();
+}
+
+async function updateQuizQuestion(id, prompt) {
+  await ready();
+  await client.execute({ sql: `UPDATE quiz_questions SET prompt = ? WHERE id = ?`, args: [prompt, id] });
+  return listQuizQuestionsWithOptions();
+}
+
+async function deleteQuizQuestion(id) {
+  await ready();
+  await client.execute({ sql: `DELETE FROM quiz_options WHERE question_id = ?`, args: [id] });
+  await client.execute({ sql: `DELETE FROM quiz_questions WHERE id = ?`, args: [id] });
+  return listQuizQuestionsWithOptions();
+}
+
+async function createQuizOption(questionId, label, menuId) {
+  await ready();
+  const maxSort = await client.execute({
+    sql: `SELECT COALESCE(MAX(sort_order), -1) AS m FROM quiz_options WHERE question_id = ?`,
+    args: [questionId],
+  });
+  const sortOrder = Number(maxSort.rows[0].m) + 1;
+  await client.execute({
+    sql: `INSERT INTO quiz_options (question_id, label, menu_id, sort_order, created_at) VALUES (?, ?, ?, ?, ?)`,
+    args: [questionId, label, menuId, sortOrder, new Date().toISOString()],
+  });
+  return listQuizQuestionsWithOptions();
+}
+
+async function updateQuizOption(id, { label, menuId }) {
+  await ready();
+  await client.execute({
+    sql: `UPDATE quiz_options SET label = ?, menu_id = ? WHERE id = ?`,
+    args: [label, menuId, id],
+  });
+  return listQuizQuestionsWithOptions();
+}
+
+async function deleteQuizOption(id) {
+  await ready();
+  await client.execute({ sql: `DELETE FROM quiz_options WHERE id = ?`, args: [id] });
+  return listQuizQuestionsWithOptions();
+}
+
 async function createReservation({ lineUserId, staffId, date, time, menu, name, phone, consultation, durationMinutes }) {
   await ready();
   const insert = await client.execute({
@@ -710,6 +793,13 @@ module.exports = {
   deleteCustomer,
   getCustomerHistory,
   listAllCustomersWithStaff,
+  listQuizQuestionsWithOptions,
+  createQuizQuestion,
+  updateQuizQuestion,
+  deleteQuizQuestion,
+  createQuizOption,
+  updateQuizOption,
+  deleteQuizOption,
   listReservationsWithStaff,
   listReservationsForStaff,
   getReservation,

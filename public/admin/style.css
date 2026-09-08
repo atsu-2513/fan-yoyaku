@@ -89,6 +89,21 @@ body {
 .history-cell .table { font-size: 12px; }
 .history-cell .empty-message { margin: 8px 0; font-size: 12px; }
 
+.quiz-question-card {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px;
+  margin-bottom: 12px;
+  background: #fff;
+}
+.quiz-question-header {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 10px;
+}
+.quiz-question-header input { flex: 1; min-width: 200px; }
+
 .staff-slots-section {
   margin-top: 40px;
 }

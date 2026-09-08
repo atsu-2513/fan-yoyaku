@@ -101,6 +101,17 @@
     </section>
 
     <section class="menu-section">
+      <h2>メニュー診断クイズ</h2>
+      <p class="slot-hint">お客様が予約フォームで「迷ったら質問に答えて探す」を選んだときに表示される質問です。質問ごとに選択肢を用意し、それぞれの選択肢がどのメニューのおすすめにつながるかを設定します。</p>
+      <div id="quiz-questions"></div>
+      <form id="quiz-question-add-form" class="menu-add-form">
+        <input type="text" id="new-quiz-prompt" placeholder="新しい質問（例：髪の悩みは？）" required style="flex:1; min-width:220px;" />
+        <button type="submit" class="btn btn--ghost">質問を追加</button>
+      </form>
+      <p id="quiz-message" class="empty-message" hidden></p>
+    </section>
+
+    <section class="menu-section">
       <h2>スタッフごとのメニュー調整</h2>
       <p class="slot-hint">共通メニューを基本として、特定のスタッフだけ「提供しない」「価格を変える」を設定できます。</p>
       <div class="staff-slots-controls">

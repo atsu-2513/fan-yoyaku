@@ -20,6 +20,13 @@ const {
   listAllCustomersWithStaff,
   getCustomerById,
   getCustomerHistory,
+  listQuizQuestionsWithOptions,
+  createQuizQuestion,
+  updateQuizQuestion,
+  deleteQuizQuestion,
+  createQuizOption,
+  updateQuizOption,
+  deleteQuizOption,
 } = require('../db');
 const {
   menuLabel,
@@ -202,6 +209,52 @@ router.post('/api/admin/staff/:id/menus', async (req, res) => {
   }
   invalidateMenuCache();
   res.json({ ok: true });
+});
+
+// ---------- メニュー診断クイズ ----------
+
+router.get('/api/admin/quiz', async (req, res) => {
+  res.json({ ok: true, questions: await listQuizQuestionsWithOptions() });
+});
+
+router.post('/api/admin/quiz/questions', async (req, res) => {
+  const prompt = typeof req.body?.prompt === 'string' ? req.body.prompt.trim() : '';
+  if (!prompt) return res.status(400).json({ ok: false, error: 'prompt_required' });
+  const questions = await createQuizQuestion(prompt);
+  res.json({ ok: true, questions });
+});
+
+router.put('/api/admin/quiz/questions/:id', async (req, res) => {
+  const prompt = typeof req.body?.prompt === 'string' ? req.body.prompt.trim() : '';
+  if (!prompt) return res.status(400).json({ ok: false, error: 'prompt_required' });
+  const questions = await updateQuizQuestion(Number(req.params.id), prompt);
+  res.json({ ok: true, questions });
+});
+
+router.delete('/api/admin/quiz/questions/:id', async (req, res) => {
+  const questions = await deleteQuizQuestion(Number(req.params.id));
+  res.json({ ok: true, questions });
+});
+
+router.post('/api/admin/quiz/questions/:id/options', async (req, res) => {
+  const label = typeof req.body?.label === 'string' ? req.body.label.trim() : '';
+  const menuId = typeof req.body?.menuId === 'string' ? req.body.menuId : '';
+  if (!label || !menuId) return res.status(400).json({ ok: false, error: 'missing_fields' });
+  const questions = await createQuizOption(Number(req.params.id), label, menuId);
+  res.json({ ok: true, questions });
+});
+
+router.put('/api/admin/quiz/options/:id', async (req, res) => {
+  const label = typeof req.body?.label === 'string' ? req.body.label.trim() : '';
+  const menuId = typeof req.body?.menuId === 'string' ? req.body.menuId : '';
+  if (!label || !menuId) return res.status(400).json({ ok: false, error: 'missing_fields' });
+  const questions = await updateQuizOption(Number(req.params.id), { label, menuId });
+  res.json({ ok: true, questions });
+});
+
+router.delete('/api/admin/quiz/options/:id', async (req, res) => {
+  const questions = await deleteQuizOption(Number(req.params.id));
+  res.json({ ok: true, questions });
 });
 
 router.post('/api/admin/reservations/:id/confirm', async (req, res) => {

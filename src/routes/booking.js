@@ -6,6 +6,7 @@ const {
   getTakenSlotsForRange,
   createReservation,
   upsertCustomer,
+  listQuizQuestionsWithOptions,
   listActiveStaff,
   getStaffById,
   getOpenSlotsForStaff,
@@ -39,6 +40,26 @@ router.get('/api/booking/menus', async (req, res) => {
   if (!staff || !staff.active) return res.status(400).json({ ok: false, error: 'invalid_staff' });
   const menus = await listMenusForStaff(staffIdNum);
   res.json({ ok: true, menus });
+});
+
+// 「迷ったら質問に答えて探す」用: そのスタッフが実際に提供しているメニューにつながる
+// 選択肢だけを残して質問一覧を返す(選択肢が0件になった質問は表示しても意味がないため除外する)
+router.get('/api/booking/quiz', async (req, res) => {
+  const { token, staffId } = req.query;
+  const row = await getValidToken(token);
+  if (!row) return res.status(400).json({ ok: false, error: 'invalid_or_expired_token' });
+  const staffIdNum = Number(staffId);
+  if (!staffIdNum) return res.status(400).json({ ok: false, error: 'staff_required' });
+  const staff = await getStaffById(staffIdNum);
+  if (!staff || !staff.active) return res.status(400).json({ ok: false, error: 'invalid_staff' });
+
+  const staffMenus = await listMenusForStaff(staffIdNum);
+  const staffMenuIds = new Set(staffMenus.map((m) => m.id));
+  const allQuestions = await listQuizQuestionsWithOptions();
+  const questions = allQuestions
+    .map((q) => ({ ...q, options: q.options.filter((o) => staffMenuIds.has(o.menu_id)) }))
+    .filter((q) => q.options.length > 0);
+  res.json({ ok: true, questions });
 });
 
 // 指定スタッフ・指定日・指定メニュー(施術時間)の、実際に予約可能な開始時刻の一覧を返す

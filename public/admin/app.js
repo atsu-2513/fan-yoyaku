@@ -660,6 +660,198 @@
     }
   }
 
+  // ---------- メニュー診断クイズ ----------
+  let quizMenuCatalog = [];
+
+  function buildMenuSelect(selectedId) {
+    const select = document.createElement('select');
+    quizMenuCatalog.forEach((m) => {
+      const opt = document.createElement('option');
+      opt.value = m.id;
+      opt.textContent = m.label;
+      if (m.id === selectedId) opt.selected = true;
+      select.appendChild(opt);
+    });
+    return select;
+  }
+
+  function renderQuizQuestionCard(q) {
+    const card = document.createElement('div');
+    card.className = 'quiz-question-card';
+
+    const headerRow = document.createElement('div');
+    headerRow.className = 'quiz-question-header';
+    const promptInput = document.createElement('input');
+    promptInput.type = 'text';
+    promptInput.value = q.prompt;
+    promptInput.className = 'menu-table-input';
+    promptInput.style.flex = '1';
+    const saveBtn = document.createElement('button');
+    saveBtn.className = 'btn btn--ghost';
+    saveBtn.textContent = '保存';
+    saveBtn.addEventListener('click', async () => {
+      const prompt = promptInput.value.trim();
+      if (!prompt) return;
+      saveBtn.disabled = true;
+      try {
+        const res = await fetch(`/api/admin/quiz/questions/${q.id}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ prompt }),
+        });
+        const data = await res.json();
+        if (res.ok && data.ok) loadQuizQuestions();
+      } finally {
+        saveBtn.disabled = false;
+      }
+    });
+    const deleteBtn = document.createElement('button');
+    deleteBtn.className = 'btn btn--ghost';
+    deleteBtn.textContent = '質問を削除';
+    deleteBtn.addEventListener('click', async () => {
+      if (!window.confirm('この質問と選択肢をすべて削除しますか？')) return;
+      await fetch(`/api/admin/quiz/questions/${q.id}`, { method: 'DELETE' });
+      loadQuizQuestions();
+    });
+    headerRow.append(promptInput, saveBtn, deleteBtn);
+    card.appendChild(headerRow);
+
+    const optionsTable = document.createElement('table');
+    optionsTable.className = 'table';
+    optionsTable.innerHTML = '<thead><tr><th>選択肢</th><th>おすすめメニュー</th><th>操作</th></tr></thead>';
+    const optionsBody = document.createElement('tbody');
+    (q.options || []).forEach((o) => {
+      const tr = document.createElement('tr');
+      const labelTd = document.createElement('td');
+      const labelInput = document.createElement('input');
+      labelInput.className = 'menu-table-input';
+      labelInput.type = 'text';
+      labelInput.value = o.label;
+      labelTd.appendChild(labelInput);
+
+      const menuTd = document.createElement('td');
+      const menuSelect = buildMenuSelect(o.menu_id);
+      menuTd.appendChild(menuSelect);
+
+      const actionTd = document.createElement('td');
+      const saveOptBtn = document.createElement('button');
+      saveOptBtn.className = 'btn btn--ghost';
+      saveOptBtn.textContent = '保存';
+      saveOptBtn.addEventListener('click', async () => {
+        const label = labelInput.value.trim();
+        if (!label) return;
+        saveOptBtn.disabled = true;
+        try {
+          const res = await fetch(`/api/admin/quiz/options/${o.id}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ label, menuId: menuSelect.value }),
+          });
+          const data = await res.json();
+          if (res.ok && data.ok) loadQuizQuestions();
+        } finally {
+          saveOptBtn.disabled = false;
+        }
+      });
+      const deleteOptBtn = document.createElement('button');
+      deleteOptBtn.className = 'btn btn--ghost';
+      deleteOptBtn.textContent = '削除';
+      deleteOptBtn.addEventListener('click', async () => {
+        if (!window.confirm('この選択肢を削除しますか？')) return;
+        await fetch(`/api/admin/quiz/options/${o.id}`, { method: 'DELETE' });
+        loadQuizQuestions();
+      });
+      actionTd.append(saveOptBtn, deleteOptBtn);
+      tr.append(labelTd, menuTd, actionTd);
+      optionsBody.appendChild(tr);
+    });
+    optionsTable.appendChild(optionsBody);
+    card.appendChild(optionsTable);
+
+    const addOptionForm = document.createElement('form');
+    addOptionForm.className = 'menu-add-form';
+    addOptionForm.style.marginTop = '8px';
+    const newLabelInput = document.createElement('input');
+    newLabelInput.type = 'text';
+    newLabelInput.placeholder = '選択肢のテキスト（例：伸びてきたので整えたい）';
+    newLabelInput.required = true;
+    newLabelInput.style.flex = '1';
+    newLabelInput.style.minWidth = '200px';
+    const newMenuSelect = buildMenuSelect(quizMenuCatalog[0] ? quizMenuCatalog[0].id : null);
+    const addOptBtn = document.createElement('button');
+    addOptBtn.type = 'submit';
+    addOptBtn.className = 'btn btn--ghost';
+    addOptBtn.textContent = '選択肢を追加';
+    addOptionForm.append(newLabelInput, newMenuSelect, addOptBtn);
+    addOptionForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const label = newLabelInput.value.trim();
+      if (!label) return;
+      addOptBtn.disabled = true;
+      try {
+        const res = await fetch(`/api/admin/quiz/questions/${q.id}/options`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ label, menuId: newMenuSelect.value }),
+        });
+        const data = await res.json();
+        if (res.ok && data.ok) loadQuizQuestions();
+      } finally {
+        addOptBtn.disabled = false;
+      }
+    });
+    card.appendChild(addOptionForm);
+
+    return card;
+  }
+
+  async function loadQuizQuestions() {
+    const container = document.getElementById('quiz-questions');
+    container.innerHTML = '';
+    const res = await fetch('/api/admin/quiz');
+    const data = await res.json();
+    const questions = data.questions || [];
+    if (!questions.length) {
+      container.innerHTML = '<p class="empty-message">質問はまだありません。下のフォームから追加してください。</p>';
+      return;
+    }
+    questions.forEach((q) => container.appendChild(renderQuizQuestionCard(q)));
+  }
+
+  async function initQuiz() {
+    const res = await fetch('/api/admin/menus');
+    const data = await res.json();
+    quizMenuCatalog = (data.menus || []).filter((m) => Number(m.active) === 1);
+    await loadQuizQuestions();
+
+    document.getElementById('quiz-question-add-form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const input = document.getElementById('new-quiz-prompt');
+      const message = document.getElementById('quiz-message');
+      const prompt = input.value.trim();
+      if (!prompt) return;
+      try {
+        const res2 = await fetch('/api/admin/quiz/questions', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ prompt }),
+        });
+        const data2 = await res2.json();
+        message.hidden = false;
+        if (!res2.ok || !data2.ok) {
+          message.textContent = '追加に失敗しました。';
+          return;
+        }
+        message.textContent = '質問を追加しました。下に選択肢を追加してください。';
+        input.value = '';
+        loadQuizQuestions();
+      } catch (err) {
+        message.hidden = false;
+        message.textContent = '通信エラーが発生しました。';
+      }
+    });
+  }
+
   load();
   initStaffSlots();
   initSettings();
@@ -667,4 +859,5 @@
   initStaffMenuAdjust();
   initStaffEmails();
   loadCustomers();
+  initQuiz();
 })();

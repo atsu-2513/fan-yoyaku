@@ -27,15 +27,27 @@ const {
   createQuizOption,
   updateQuizOption,
   deleteQuizOption,
+  listMenusForStaff,
+  getCandidateRequest,
+  listAllCandidateRequestsWithStaff,
+  confirmCandidateRequest,
+  declineCandidateRequest,
+  listAllOpenWaitlistAlerts,
+  getWaitlistAlert,
+  markWaitlistAlertStatus,
+  updateReservationDateTime,
 } = require('../db');
 const {
   menuLabel,
   isBusinessDay,
+  slotsForDate,
   getSlotTimes,
   invalidateSettingsCache,
   invalidateMenuCache,
 } = require('../businessHours');
+const { computeAvailableStartTimes, expandRange } = require('../availability');
 const { pushText } = require('../line');
+const { checkAndCreateWaitlistAlerts } = require('../waitlist');
 
 const router = express.Router();
 
@@ -307,6 +319,165 @@ router.post('/api/admin/reservations/:id/cancel', async (req, res) => {
     );
   } catch (err) {
     console.error('LINE push (キャンセル/admin) failed:', err);
+  }
+
+  try {
+    await checkAndCreateWaitlistAlerts(reservation);
+  } catch (err) {
+    console.error('空き通知チェックに失敗しました:', err);
+  }
+
+  res.json({ ok: true, reservation });
+});
+
+// ---------- 候補日リクエスト(お客様が複数の希望日時を提示し、スタッフ/オーナーが1つ確定する) ----------
+router.get('/api/admin/candidate-requests', async (req, res) => {
+  const requests = await listAllCandidateRequestsWithStaff();
+  res.json({ ok: true, requests });
+});
+
+router.post('/api/admin/candidate-requests/:id/confirm', async (req, res) => {
+  const id = Number(req.params.id);
+  const rank = Number(req.body?.rank);
+  const existing = await getCandidateRequest(id);
+  if (!existing) return res.status(404).json({ ok: false, error: 'not_found' });
+  if (existing.status !== 'pending') {
+    return res.status(409).json({ ok: false, error: 'already_handled' });
+  }
+  const chosen = existing.dates.find((d) => Number(d.rank) === rank);
+  if (!chosen) return res.status(400).json({ ok: false, error: 'invalid_rank' });
+
+  const staff = await getStaffById(existing.staff_id);
+  if (!staff) return res.status(400).json({ ok: false, error: 'invalid_staff' });
+
+  // 確定直前に、他の予約とまだ重なっていないか再確認する
+  const staffMenus = await listMenusForStaff(existing.staff_id);
+  const selectedMenu = staffMenus.find((m) => m.id === existing.menu);
+  const durationMinutes = (selectedMenu && selectedMenu.durationMinutes) || existing.duration_minutes || 60;
+  const candidateSlots = await slotsForDate(chosen.date);
+  const openSlots = await getOpenSlotsForStaff(existing.staff_id, chosen.date);
+  const takenSlots = await getTakenSlots(existing.staff_id, chosen.date);
+  const available = computeAvailableStartTimes({ candidateSlots, openSlots, takenSlots, durationMinutes });
+  if (!available.includes(chosen.time)) {
+    return res.status(409).json({ ok: false, error: 'slot_taken' });
+  }
+
+  const confirmed = await confirmCandidateRequest(id, rank);
+  const reservation = confirmed.reservation;
+
+  try {
+    await pushText(
+      reservation.line_user_id,
+      reservation.name + '様\nご予約が確定しました。\n\n' +
+        '日時: ' + reservation.date + ' ' + reservation.time + '\n' +
+        '担当: ' + staff.name + '\n' +
+        'メニュー: ' + (await menuLabel(reservation.menu)) + '\n\n' +
+        'ご来店を心よりお待ちしております。'
+    );
+  } catch (err) {
+    console.error('LINE push (候補日確定) failed:', err);
+  }
+
+  res.json({ ok: true, request: confirmed.request, reservation });
+});
+
+router.post('/api/admin/candidate-requests/:id/decline', async (req, res) => {
+  const id = Number(req.params.id);
+  const existing = await getCandidateRequest(id);
+  if (!existing) return res.status(404).json({ ok: false, error: 'not_found' });
+  if (existing.status !== 'pending') {
+    return res.json({ ok: true, request: existing });
+  }
+  const request = await declineCandidateRequest(id);
+
+  try {
+    await pushText(
+      existing.line_user_id,
+      existing.name + '様\n誠に申し訳ございませんが、ご提示いただいた候補日はいずれも埋まっております。\n\n' +
+        'お手数ですが、再度ご希望日時をご相談させてください。'
+    );
+  } catch (err) {
+    console.error('LINE push (候補日見送り) failed:', err);
+  }
+
+  res.json({ ok: true, request });
+});
+
+// ---------- 空き通知(キャンセルで第一希望の枠が空いた場合の通知・お声がけ) ----------
+router.get('/api/admin/waitlist-alerts', async (req, res) => {
+  const alerts = await listAllOpenWaitlistAlerts();
+  res.json({ ok: true, alerts });
+});
+
+router.post('/api/admin/waitlist-alerts/:id/notify', async (req, res) => {
+  const id = Number(req.params.id);
+  const alert = await getWaitlistAlert(id);
+  if (!alert) return res.status(404).json({ ok: false, error: 'not_found' });
+  const customMessage = typeof req.body?.message === 'string' ? req.body.message.trim() : '';
+  const message = customMessage
+    ? customMessage.slice(0, 1000)
+    : alert.name + '様\nご希望されていた ' + alert.date + ' ' + alert.time + ' に空きが出ました。\n' +
+      'ご都合がよろしければ、このメッセージにご返信いただくか、店舗までご連絡ください。';
+
+  try {
+    await pushText(alert.line_user_id, message);
+  } catch (err) {
+    console.error('LINE push (空き通知) failed:', err);
+    return res.status(502).json({ ok: false, error: 'line_push_failed' });
+  }
+
+  const updated = await markWaitlistAlertStatus(id, 'contacted');
+  res.json({ ok: true, alert: updated });
+});
+
+router.post('/api/admin/waitlist-alerts/:id/dismiss', async (req, res) => {
+  const id = Number(req.params.id);
+  const updated = await markWaitlistAlertStatus(id, 'dismissed');
+  if (!updated) return res.status(404).json({ ok: false, error: 'not_found' });
+  res.json({ ok: true, alert: updated });
+});
+
+// ---------- 予約日時の変更(画面上でそのまま変更する。キャンセル+再予約の代わり) ----------
+router.post('/api/admin/reservations/:id/reschedule', async (req, res) => {
+  const id = Number(req.params.id);
+  const { date, time } = req.body || {};
+  if (!date || !time) return res.status(400).json({ ok: false, error: 'missing_fields' });
+  const existing = await getReservation(id);
+  if (!existing) return res.status(404).json({ ok: false, error: 'not_found' });
+  if (existing.status === 'cancelled') {
+    return res.status(409).json({ ok: false, error: 'already_cancelled' });
+  }
+  if (!(await isBusinessDay(date))) {
+    return res.status(400).json({ ok: false, error: 'invalid_date_or_time' });
+  }
+  const staffMenus = await listMenusForStaff(existing.staff_id);
+  const selectedMenu = staffMenus.find((m) => m.id === existing.menu);
+  const durationMinutes = (selectedMenu && selectedMenu.durationMinutes) || existing.duration_minutes || 60;
+  const candidateSlots = await slotsForDate(date);
+  const openSlots = await getOpenSlotsForStaff(existing.staff_id, date);
+  const takenSlotsRaw = await getTakenSlots(existing.staff_id, date);
+  // 変更先が同じ日の場合、自分自身が今使っている枠は「空き」として扱う
+  const ownSlots = new Set(existing.date === date ? expandRange(existing.time, durationMinutes) : []);
+  const takenSlots = takenSlotsRaw.filter((t) => !ownSlots.has(t));
+  const available = computeAvailableStartTimes({ candidateSlots, openSlots, takenSlots, durationMinutes });
+  if (!available.includes(time)) {
+    return res.status(409).json({ ok: false, error: 'slot_taken' });
+  }
+
+  const reservation = await updateReservationDateTime(id, { date, time });
+
+  try {
+    const staff = existing.staff_id ? await getStaffById(existing.staff_id) : null;
+    await pushText(
+      reservation.line_user_id,
+      reservation.name + '様\nご予約の日時を変更いたしました。\n\n' +
+        '変更後: ' + reservation.date + ' ' + reservation.time + '\n' +
+        (staff ? '担当: ' + staff.name + '\n' : '') +
+        'メニュー: ' + (await menuLabel(reservation.menu)) + '\n\n' +
+        'ご不明な点がございましたら店舗までご連絡ください。'
+    );
+  } catch (err) {
+    console.error('LINE push (日時変更) failed:', err);
   }
 
   res.json({ ok: true, reservation });

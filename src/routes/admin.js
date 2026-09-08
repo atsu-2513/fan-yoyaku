@@ -17,6 +17,7 @@ const {
   updateMenu,
   getStaffMenuOverrides,
   setStaffMenuOverride,
+  listAllCustomersWithStaff,
 } = require('../db');
 const {
   menuLabel,
@@ -48,6 +49,12 @@ router.get('/api/admin/reservations', async (req, res) => {
 
 router.get('/api/admin/staff', async (req, res) => {
   res.json({ ok: true, staff: await listAllStaff() });
+});
+
+// 全スタッフぶんの顧客一覧(閲覧のみ。編集・削除はスタッフ本人の画面から)
+router.get('/api/admin/customers', async (req, res) => {
+  const customers = await listAllCustomersWithStaff();
+  res.json({ ok: true, customers });
 });
 
 // スタッフの通知先メールアドレスを設定(オーナーがまとめて管理する)

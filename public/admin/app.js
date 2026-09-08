@@ -564,10 +564,45 @@
     }
   }
 
+  async function loadCustomers() {
+    const tbody = document.getElementById('customers-body');
+    const emptyMessage = document.getElementById('customers-empty-message');
+    tbody.innerHTML = '';
+    try {
+      const res = await fetch('/api/admin/customers');
+      const data = await res.json();
+      const customers = data.customers || [];
+      emptyMessage.hidden = customers.length > 0;
+      customers.forEach((c) => {
+        const tr = document.createElement('tr');
+        const staffTd = document.createElement('td');
+        staffTd.textContent = c.staff_name || '—';
+        const nameTd = document.createElement('td');
+        nameTd.textContent = c.name;
+        const phoneTd = document.createElement('td');
+        phoneTd.textContent = c.phone;
+        const countTd = document.createElement('td');
+        countTd.textContent = c.visit_count || 0;
+        const lastVisitTd = document.createElement('td');
+        lastVisitTd.textContent = c.last_visit_date || '—';
+        const memoTd = document.createElement('td');
+        memoTd.textContent = c.memo || '—';
+        memoTd.style.whiteSpace = 'pre-wrap';
+        memoTd.style.fontSize = '12px';
+        tr.append(staffTd, nameTd, phoneTd, countTd, lastVisitTd, memoTd);
+        tbody.appendChild(tr);
+      });
+    } catch (err) {
+      emptyMessage.hidden = false;
+      emptyMessage.textContent = '読み込みに失敗しました。';
+    }
+  }
+
   load();
   initStaffSlots();
   initSettings();
   initMenus();
   initStaffMenuAdjust();
   initStaffEmails();
+  loadCustomers();
 })();

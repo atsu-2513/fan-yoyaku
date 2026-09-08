@@ -529,6 +529,20 @@ async function listCustomersForStaff(staffId) {
   return result.rows;
 }
 
+// オーナー管理画面用: 全スタッフぶんの顧客一覧をまとめて返す(閲覧のみ、編集はスタッフ本人のみ)
+async function listAllCustomersWithStaff() {
+  await ready();
+  const result = await client.execute(
+    `SELECT c.*, s.name AS staff_name,
+       (SELECT COUNT(*) FROM reservations r WHERE r.staff_id = c.staff_id AND r.phone = c.phone AND r.status != 'cancelled') AS visit_count,
+       (SELECT MAX(date) FROM reservations r WHERE r.staff_id = c.staff_id AND r.phone = c.phone AND r.status != 'cancelled') AS last_visit_date
+     FROM customers c
+     LEFT JOIN staff s ON s.id = c.staff_id
+     ORDER BY s.name ASC, last_visit_date DESC, c.name ASC`
+  );
+  return result.rows;
+}
+
 async function getCustomerById(id) {
   await ready();
   const result = await client.execute({ sql: `SELECT * FROM customers WHERE id = ?`, args: [id] });
@@ -682,6 +696,7 @@ module.exports = {
   getCustomerById,
   updateCustomer,
   deleteCustomer,
+  listAllCustomersWithStaff,
   listReservationsWithStaff,
   listReservationsForStaff,
   getReservation,

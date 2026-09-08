@@ -18,6 +18,8 @@ const {
   getStaffMenuOverrides,
   setStaffMenuOverride,
   listAllCustomersWithStaff,
+  getCustomerById,
+  getCustomerHistory,
 } = require('../db');
 const {
   menuLabel,
@@ -55,6 +57,16 @@ router.get('/api/admin/staff', async (req, res) => {
 router.get('/api/admin/customers', async (req, res) => {
   const customers = await listAllCustomersWithStaff();
   res.json({ ok: true, customers });
+});
+
+router.get('/api/admin/customers/:id/history', async (req, res) => {
+  const id = Number(req.params.id);
+  const existing = await getCustomerById(id);
+  if (!existing) return res.status(404).json({ ok: false, error: 'not_found' });
+  const rows = await getCustomerHistory(existing.staff_id, existing.phone);
+  const history = [];
+  for (const r of rows) history.push({ ...r, menuLabel: await menuLabel(r.menu) });
+  res.json({ ok: true, history });
 });
 
 // スタッフの通知先メールアドレスを設定(オーナーがまとめて管理する)

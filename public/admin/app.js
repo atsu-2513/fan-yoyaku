@@ -589,12 +589,74 @@
         memoTd.textContent = c.memo || '—';
         memoTd.style.whiteSpace = 'pre-wrap';
         memoTd.style.fontSize = '12px';
-        tr.append(staffTd, nameTd, phoneTd, countTd, lastVisitTd, memoTd);
+        const actionTd = document.createElement('td');
+        const historyBtn = document.createElement('button');
+        historyBtn.className = 'btn btn--ghost';
+        historyBtn.textContent = '履歴を見る';
+        actionTd.appendChild(historyBtn);
+        tr.append(staffTd, nameTd, phoneTd, countTd, lastVisitTd, memoTd, actionTd);
         tbody.appendChild(tr);
+
+        const historyTr = document.createElement('tr');
+        historyTr.hidden = true;
+        const historyTd = document.createElement('td');
+        historyTd.colSpan = 7;
+        historyTd.className = 'history-cell';
+        historyTr.appendChild(historyTd);
+        historyBtn.addEventListener('click', () => toggleCustomerHistory(c.id, historyTr, historyTd, historyBtn));
+        tbody.appendChild(historyTr);
       });
     } catch (err) {
       emptyMessage.hidden = false;
       emptyMessage.textContent = '読み込みに失敗しました。';
+    }
+  }
+
+  async function toggleCustomerHistory(id, historyTr, historyTd, btn) {
+    if (!historyTr.hidden) {
+      historyTr.hidden = true;
+      btn.textContent = '履歴を見る';
+      return;
+    }
+    historyTr.hidden = false;
+    btn.textContent = '閉じる';
+    btn.disabled = true;
+    historyTd.innerHTML = '<p class="empty-message">読み込み中...</p>';
+    try {
+      const res = await fetch(`/api/admin/customers/${id}/history`);
+      const data = await res.json();
+      const history = data.history || [];
+      if (!res.ok || !data.ok) {
+        historyTd.innerHTML = '<p class="empty-message">読み込みに失敗しました。</p>';
+      } else if (!history.length) {
+        historyTd.innerHTML = '<p class="empty-message">来店履歴はまだありません。</p>';
+      } else {
+        const table = document.createElement('table');
+        table.className = 'table';
+        table.innerHTML = '<thead><tr><th>日時</th><th>メニュー</th><th>状態</th></tr></thead>';
+        const historyBody = document.createElement('tbody');
+        history.forEach((h) => {
+          const row = document.createElement('tr');
+          const dateTd = document.createElement('td');
+          dateTd.textContent = `${h.date} ${h.time}`;
+          const menuTd = document.createElement('td');
+          menuTd.textContent = h.menuLabel;
+          const statusTd = document.createElement('td');
+          const badge = document.createElement('span');
+          badge.className = `badge badge--${h.status}`;
+          badge.textContent = h.status === 'confirmed' ? '確定' : '仮予約';
+          statusTd.appendChild(badge);
+          row.append(dateTd, menuTd, statusTd);
+          historyBody.appendChild(row);
+        });
+        table.appendChild(historyBody);
+        historyTd.innerHTML = '';
+        historyTd.appendChild(table);
+      }
+    } catch (err) {
+      historyTd.innerHTML = '<p class="empty-message">通信エラーが発生しました。</p>';
+    } finally {
+      btn.disabled = false;
     }
   }
 

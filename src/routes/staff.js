@@ -16,6 +16,7 @@ const {
   getCustomerById,
   updateCustomer,
   deleteCustomer,
+  getCustomerHistory,
 } = require('../db');
 const { isBusinessDay, getSlotTimes, menuLabel } = require('../businessHours');
 const { hashPassword, verifyPassword, createSessionCookie, clearSessionCookie, getStaffIdFromRequest } = require('../auth');
@@ -220,6 +221,18 @@ router.delete('/staff/api/customers/:id', requireStaffAuth, async (req, res) => 
   }
   await deleteCustomer(id);
   res.json({ ok: true });
+});
+
+router.get('/staff/api/customers/:id/history', requireStaffAuth, async (req, res) => {
+  const id = Number(req.params.id);
+  const existing = await getCustomerById(id);
+  if (!existing || Number(existing.staff_id) !== Number(req.staff.id)) {
+    return res.status(404).json({ ok: false, error: 'not_found' });
+  }
+  const rows = await getCustomerHistory(existing.staff_id, existing.phone);
+  const history = [];
+  for (const r of rows) history.push({ ...r, menuLabel: await menuLabel(r.menu) });
+  res.json({ ok: true, history });
 });
 
 module.exports = router;

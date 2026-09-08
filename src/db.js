@@ -558,6 +558,18 @@ async function updateCustomer(id, { name, memo }) {
   return getCustomerById(id);
 }
 
+// その顧客(スタッフ+電話番号)の来店履歴(日時・メニュー・状態)を新しい順に返す
+async function getCustomerHistory(staffId, phone) {
+  await ready();
+  const result = await client.execute({
+    sql: `SELECT id, date, time, menu, status FROM reservations
+          WHERE staff_id = ? AND phone = ? AND status != 'cancelled'
+          ORDER BY date DESC, time DESC`,
+    args: [staffId, phone],
+  });
+  return result.rows;
+}
+
 async function deleteCustomer(id) {
   await ready();
   await client.execute({ sql: `DELETE FROM customers WHERE id = ?`, args: [id] });
@@ -696,6 +708,7 @@ module.exports = {
   getCustomerById,
   updateCustomer,
   deleteCustomer,
+  getCustomerHistory,
   listAllCustomersWithStaff,
   listReservationsWithStaff,
   listReservationsForStaff,

@@ -219,3 +219,8 @@ input {
   flex: 1 1 140px;
 }
 .customer-add-form .btn { flex: 0 0 auto; }
+.history-cell {
+  background: var(--bg);
+  padding: 10px !important;
+}
+.history-cell .table { font-size: 12px; }

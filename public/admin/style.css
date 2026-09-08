@@ -82,6 +82,13 @@ body {
   margin-top: 40px;
 }
 
+.history-cell {
+  background: var(--bg);
+  padding: 10px !important;
+}
+.history-cell .table { font-size: 12px; }
+.history-cell .empty-message { margin: 8px 0; font-size: 12px; }
+
 .staff-slots-section {
   margin-top: 40px;
 }

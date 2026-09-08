@@ -17,10 +17,21 @@ const {
   updateCustomer,
   deleteCustomer,
   getCustomerHistory,
+  listMenusForStaff,
+  getCandidateRequest,
+  listCandidateRequestsForStaff,
+  confirmCandidateRequest,
+  declineCandidateRequest,
+  getWaitlistAlert,
+  listOpenWaitlistAlertsForStaff,
+  markWaitlistAlertStatus,
+  updateReservationDateTime,
 } = require('../db');
-const { isBusinessDay, getSlotTimes, menuLabel } = require('../businessHours');
+const { isBusinessDay, slotsForDate, getSlotTimes, menuLabel } = require('../businessHours');
+const { computeAvailableStartTimes, expandRange } = require('../availability');
 const { hashPassword, verifyPassword, createSessionCookie, clearSessionCookie, getStaffIdFromRequest } = require('../auth');
 const { pushText } = require('../line');
+const { checkAndCreateWaitlistAlerts } = require('../waitlist');
 
 const router = express.Router();
 
@@ -175,6 +186,12 @@ router.post('/staff/api/reservations/:id/cancel', requireStaffAuth, async (req, 
     console.error('LINE push (キャンセル/staff) failed:', err);
   }
 
+  try {
+    await checkAndCreateWaitlistAlerts(reservation);
+  } catch (err) {
+    console.error('空き通知チェックに失敗しました:', err);
+  }
+
   res.json({ ok: true, reservation });
 });
 
@@ -233,6 +250,165 @@ router.get('/staff/api/customers/:id/history', requireStaffAuth, async (req, res
   const history = [];
   for (const r of rows) history.push({ ...r, menuLabel: await menuLabel(r.menu) });
   res.json({ ok: true, history });
+});
+
+
+// ---------- 候補日リクエスト(自分宛のみ) ----------
+router.get('/staff/api/candidate-requests', requireStaffAuth, async (req, res) => {
+  const requests = await listCandidateRequestsForStaff(req.staff.id);
+  res.json({ ok: true, requests });
+});
+
+router.post('/staff/api/candidate-requests/:id/confirm', requireStaffAuth, async (req, res) => {
+  const id = Number(req.params.id);
+  const rank = Number(req.body?.rank);
+  const existing = await getCandidateRequest(id);
+  if (!existing || Number(existing.staff_id) !== Number(req.staff.id)) {
+    return res.status(404).json({ ok: false, error: 'not_found' });
+  }
+  if (existing.status !== 'pending') {
+    return res.status(409).json({ ok: false, error: 'already_handled' });
+  }
+  const chosen = existing.dates.find((d) => Number(d.rank) === rank);
+  if (!chosen) return res.status(400).json({ ok: false, error: 'invalid_rank' });
+
+  const staffMenus = await listMenusForStaff(req.staff.id);
+  const selectedMenu = staffMenus.find((m) => m.id === existing.menu);
+  const durationMinutes = (selectedMenu && selectedMenu.durationMinutes) || existing.duration_minutes || 60;
+  const candidateSlots = await slotsForDate(chosen.date);
+  const openSlots = await getOpenSlotsForStaff(req.staff.id, chosen.date);
+  const takenSlots = await getTakenSlots(req.staff.id, chosen.date);
+  const available = computeAvailableStartTimes({ candidateSlots, openSlots, takenSlots, durationMinutes });
+  if (!available.includes(chosen.time)) {
+    return res.status(409).json({ ok: false, error: 'slot_taken' });
+  }
+
+  const confirmed = await confirmCandidateRequest(id, rank);
+  const reservation = confirmed.reservation;
+
+  try {
+    await pushText(
+      reservation.line_user_id,
+      reservation.name + '様\nご予約が確定しました。\n\n' +
+        '日時: ' + reservation.date + ' ' + reservation.time + '\n' +
+        '担当: ' + req.staff.name + '\n' +
+        'メニュー: ' + (await menuLabel(reservation.menu)) + '\n\n' +
+        'ご来店を心よりお待ちしております。'
+    );
+  } catch (err) {
+    console.error('LINE push (候補日確定/staff) failed:', err);
+  }
+
+  res.json({ ok: true, request: confirmed.request, reservation });
+});
+
+router.post('/staff/api/candidate-requests/:id/decline', requireStaffAuth, async (req, res) => {
+  const id = Number(req.params.id);
+  const existing = await getCandidateRequest(id);
+  if (!existing || Number(existing.staff_id) !== Number(req.staff.id)) {
+    return res.status(404).json({ ok: false, error: 'not_found' });
+  }
+  if (existing.status !== 'pending') {
+    return res.json({ ok: true, request: existing });
+  }
+  const request = await declineCandidateRequest(id);
+
+  try {
+    await pushText(
+      existing.line_user_id,
+      existing.name + '様\n誠に申し訳ございませんが、ご提示いただいた候補日はいずれも埋まっております。\n\n' +
+        'お手数ですが、再度ご希望日時をご相談させてください。'
+    );
+  } catch (err) {
+    console.error('LINE push (候補日見送り/staff) failed:', err);
+  }
+
+  res.json({ ok: true, request });
+});
+
+// ---------- 空き通知(自分宛のみ) ----------
+router.get('/staff/api/waitlist-alerts', requireStaffAuth, async (req, res) => {
+  const alerts = await listOpenWaitlistAlertsForStaff(req.staff.id);
+  res.json({ ok: true, alerts });
+});
+
+router.post('/staff/api/waitlist-alerts/:id/notify', requireStaffAuth, async (req, res) => {
+  const id = Number(req.params.id);
+  const alert = await getWaitlistAlert(id);
+  if (!alert || Number(alert.staff_id) !== Number(req.staff.id)) {
+    return res.status(404).json({ ok: false, error: 'not_found' });
+  }
+  const customMessage = typeof req.body?.message === 'string' ? req.body.message.trim() : '';
+  const message = customMessage
+    ? customMessage.slice(0, 1000)
+    : alert.name + '様\nご希望されていた ' + alert.date + ' ' + alert.time + ' に空きが出ました。\n' +
+      'ご都合がよろしければ、このメッセージにご返信いただくか、店舗までご連絡ください。';
+
+  try {
+    await pushText(alert.line_user_id, message);
+  } catch (err) {
+    console.error('LINE push (空き通知/staff) failed:', err);
+    return res.status(502).json({ ok: false, error: 'line_push_failed' });
+  }
+
+  const updated = await markWaitlistAlertStatus(id, 'contacted');
+  res.json({ ok: true, alert: updated });
+});
+
+router.post('/staff/api/waitlist-alerts/:id/dismiss', requireStaffAuth, async (req, res) => {
+  const id = Number(req.params.id);
+  const alert = await getWaitlistAlert(id);
+  if (!alert || Number(alert.staff_id) !== Number(req.staff.id)) {
+    return res.status(404).json({ ok: false, error: 'not_found' });
+  }
+  const updated = await markWaitlistAlertStatus(id, 'dismissed');
+  res.json({ ok: true, alert: updated });
+});
+
+// ---------- 予約日時の変更(画面上でそのまま変更する) ----------
+router.post('/staff/api/reservations/:id/reschedule', requireStaffAuth, async (req, res) => {
+  const id = Number(req.params.id);
+  const { date, time } = req.body || {};
+  if (!date || !time) return res.status(400).json({ ok: false, error: 'missing_fields' });
+  const existing = await getReservation(id);
+  if (!existing || Number(existing.staff_id) !== Number(req.staff.id)) {
+    return res.status(404).json({ ok: false, error: 'not_found' });
+  }
+  if (existing.status === 'cancelled') {
+    return res.status(409).json({ ok: false, error: 'already_cancelled' });
+  }
+  if (!(await isBusinessDay(date))) {
+    return res.status(400).json({ ok: false, error: 'invalid_date_or_time' });
+  }
+  const staffMenus = await listMenusForStaff(req.staff.id);
+  const selectedMenu = staffMenus.find((m) => m.id === existing.menu);
+  const durationMinutes = (selectedMenu && selectedMenu.durationMinutes) || existing.duration_minutes || 60;
+  const candidateSlots = await slotsForDate(date);
+  const openSlots = await getOpenSlotsForStaff(req.staff.id, date);
+  const takenSlotsRaw = await getTakenSlots(req.staff.id, date);
+  const ownSlots = new Set(existing.date === date ? expandRange(existing.time, durationMinutes) : []);
+  const takenSlots = takenSlotsRaw.filter((t) => !ownSlots.has(t));
+  const available = computeAvailableStartTimes({ candidateSlots, openSlots, takenSlots, durationMinutes });
+  if (!available.includes(time)) {
+    return res.status(409).json({ ok: false, error: 'slot_taken' });
+  }
+
+  const reservation = await updateReservationDateTime(id, { date, time });
+
+  try {
+    await pushText(
+      reservation.line_user_id,
+      reservation.name + '様\nご予約の日時を変更いたしました。\n\n' +
+        '変更後: ' + reservation.date + ' ' + reservation.time + '\n' +
+        '担当: ' + req.staff.name + '\n' +
+        'メニュー: ' + (await menuLabel(reservation.menu)) + '\n\n' +
+        'ご不明な点がございましたら店舗までご連絡ください。'
+    );
+  } catch (err) {
+    console.error('LINE push (日時変更/staff) failed:', err);
+  }
+
+  res.json({ ok: true, reservation });
 });
 
 module.exports = router;

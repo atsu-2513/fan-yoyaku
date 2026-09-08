@@ -68,6 +68,28 @@ router.get('/api/admin/reservations', async (req, res) => {
   res.json({ ok: true, reservations });
 });
 
+// 予約の日時変更(reschedule)パネル用: 指定日の、この予約自身の枠は空きとして扱った空き時間一覧
+router.get('/api/admin/reservations/:id/availability', async (req, res) => {
+  const id = Number(req.params.id);
+  const { date } = req.query;
+  if (!date) return res.status(400).json({ ok: false, error: 'date_required' });
+  const existing = await getReservation(id);
+  if (!existing) return res.status(404).json({ ok: false, error: 'not_found' });
+  if (!(await isBusinessDay(date))) {
+    return res.json({ ok: true, date, businessDay: false, slots: [] });
+  }
+  const staffMenus = await listMenusForStaff(existing.staff_id);
+  const selectedMenu = staffMenus.find((m) => m.id === existing.menu);
+  const durationMinutes = (selectedMenu && selectedMenu.durationMinutes) || existing.duration_minutes || 60;
+  const candidateSlots = await slotsForDate(date);
+  const openSlots = await getOpenSlotsForStaff(existing.staff_id, date);
+  const takenSlotsRaw = await getTakenSlots(existing.staff_id, date);
+  const ownSlots = new Set(existing.date === date ? expandRange(existing.time, durationMinutes) : []);
+  const takenSlots = takenSlotsRaw.filter((t) => !ownSlots.has(t));
+  const available = computeAvailableStartTimes({ candidateSlots, openSlots, takenSlots, durationMinutes });
+  res.json({ ok: true, date, businessDay: true, slots: available });
+});
+
 router.get('/api/admin/staff', async (req, res) => {
   res.json({ ok: true, staff: await listAllStaff() });
 });

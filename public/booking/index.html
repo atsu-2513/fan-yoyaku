@@ -53,6 +53,12 @@
 
       <!-- Step 3: 日時選択 -->
       <section id="step-3" class="step">
+        <div id="candidate-mode-intro" class="step-actions" style="margin-bottom:14px;">
+          <button type="button" id="candidate-mode-start-btn" class="btn btn--ghost">今すぐ日時が決まらない方はこちら（候補日を出して相談する）</button>
+        </div>
+        <div id="candidate-mode-banner" class="message" hidden>
+          <p>候補日を選択中です（第<span id="candidate-round-num"></span>希望）。ご都合の良い日を最大3つまでお選びいただけます。</p>
+        </div>
         <div class="calendar">
           <div class="calendar__nav">
             <button type="button" id="prev-month" class="btn btn--ghost">＜</button>
@@ -68,6 +74,11 @@
         <div id="time-section" class="time-section" hidden>
           <h3 id="selected-date-label"></h3>
           <div id="time-slots" class="time-slots"></div>
+        </div>
+        <div id="candidate-list" class="summary" hidden></div>
+        <div id="candidate-mode-actions" class="step-actions" hidden>
+          <button type="button" id="candidate-continue-btn" class="btn" hidden>この内容で相談する</button>
+          <button type="button" id="candidate-mode-cancel-btn" class="btn btn--ghost">通常の予約に戻る</button>
         </div>
         <div class="step-actions">
           <button type="button" class="btn btn--ghost" data-back="2">戻る</button>
@@ -101,10 +112,15 @@
     </div>
 
     <div id="done-screen" class="screen" hidden>
-      <p class="message message--success">
+      <p id="done-message-single" class="message message--success">
         仮予約を受け付けました。<br />
         LINEにも確認メッセージをお送りしました。<br />
         店舗からの確定連絡をお待ちください。
+      </p>
+      <p id="done-message-candidates" class="message message--success" hidden>
+        候補日を受け付けました。<br />
+        LINEにも確認メッセージをお送りしました。<br />
+        店舗で確認のうえ、確定のご連絡をいたします。
       </p>
     </div>
   </div>

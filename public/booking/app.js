@@ -19,6 +19,8 @@
     quizQuestions: [],
     quizAnswers: [], // 選んだ順に menu_id を積んでいく
     quizIndex: 0,
+    mode: 'single', // 'single' | 'candidates'(候補日を複数出して相談するモード)
+    candidateList: [], // [{date, time}, ...] 第1〜第3希望まで(順番=希望順)
   };
 
   function showScreen(el) {
@@ -74,6 +76,7 @@
         state.selectedDate = null;
         state.selectedTime = null;
         state.selectedMenu = null;
+        resetCandidateMode();
         document.querySelectorAll('#staff-options .menu-option').forEach((o) => o.classList.remove('is-selected'));
         el.classList.add('is-selected');
         document.getElementById('time-section').hidden = true;
@@ -201,6 +204,10 @@
         btn.className = 'slot-btn';
         btn.textContent = time;
         btn.addEventListener('click', () => {
+          if (state.mode === 'candidates') {
+            addCandidateDate(dateStr, time);
+            return;
+          }
           state.selectedTime = time;
           document.querySelectorAll('.slot-btn').forEach((b) => b.classList.remove('is-selected'));
           btn.classList.add('is-selected');
@@ -212,6 +219,86 @@
       slotsEl.innerHTML = '<p class="time-empty">空き状況の取得に失敗しました。</p>';
     }
   }
+
+  // ---------- 候補日モード(お客様が複数の希望日時を提示して、後でスタッフ/オーナーが1つ確定する) ----------
+  function resetCandidateMode() {
+    state.mode = 'single';
+    state.candidateList = [];
+    document.getElementById('candidate-mode-intro').hidden = false;
+    document.getElementById('candidate-mode-banner').hidden = true;
+    document.getElementById('candidate-list').hidden = true;
+    document.getElementById('candidate-list').innerHTML = '';
+    document.getElementById('candidate-mode-actions').hidden = true;
+    document.getElementById('candidate-continue-btn').hidden = true;
+  }
+
+  function renderCandidateList() {
+    const wrap = document.getElementById('candidate-list');
+    if (state.candidateList.length === 0) {
+      wrap.hidden = true;
+      wrap.innerHTML = '';
+      return;
+    }
+    wrap.hidden = false;
+    wrap.innerHTML = state.candidateList
+      .map(
+        (c, i) =>
+          `<div>第${i + 1}希望: ${c.date} ${c.time} <button type="button" class="btn btn--ghost" data-remove-candidate="${i}" style="padding:2px 8px;margin-left:8px;">取消</button></div>`
+      )
+      .join('');
+    wrap.querySelectorAll('[data-remove-candidate]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const idx = Number(btn.dataset.removeCandidate);
+        state.candidateList.splice(idx, 1);
+        renderCandidateList();
+        updateCandidateModeUI();
+      });
+    });
+  }
+
+  function updateCandidateModeUI() {
+    const roundNum = Math.min(state.candidateList.length + 1, 3);
+    document.getElementById('candidate-round-num').textContent = String(roundNum);
+    const continueBtn = document.getElementById('candidate-continue-btn');
+    continueBtn.hidden = state.candidateList.length === 0;
+    document.getElementById('candidate-mode-actions').hidden = false;
+  }
+
+  function addCandidateDate(date, time) {
+    if (state.candidateList.some((c) => c.date === date && c.time === time)) return;
+    if (state.candidateList.length >= 3) return;
+    state.candidateList.push({ date, time });
+    renderCandidateList();
+    updateCandidateModeUI();
+    // 次の候補日を選べるように、選択状態と時間枠表示をリセットする
+    state.selectedDate = null;
+    state.selectedTime = null;
+    document.getElementById('time-section').hidden = true;
+    renderCalendar();
+  }
+
+  document.getElementById('candidate-mode-start-btn').addEventListener('click', () => {
+    state.mode = 'candidates';
+    state.candidateList = [];
+    document.getElementById('candidate-mode-intro').hidden = true;
+    document.getElementById('candidate-mode-banner').hidden = false;
+    document.getElementById('candidate-mode-actions').hidden = false;
+    document.getElementById('candidate-continue-btn').hidden = true;
+    updateCandidateModeUI();
+  });
+
+  document.getElementById('candidate-mode-cancel-btn').addEventListener('click', () => {
+    resetCandidateMode();
+    state.selectedDate = null;
+    state.selectedTime = null;
+    document.getElementById('time-section').hidden = true;
+    renderCalendar();
+  });
+
+  document.getElementById('candidate-continue-btn').addEventListener('click', () => {
+    if (state.candidateList.length === 0) return;
+    goToStep(4);
+  });
 
   // ---------- Step 2: Menu ----------
   async function loadMenusForStaff(staffId) {
@@ -335,6 +422,7 @@
       state.selectedTime = null;
       document.getElementById('time-section').hidden = true;
       exitQuiz();
+      resetCandidateMode();
       loadMonthAvailability();
       goToStep(3);
     });
@@ -366,6 +454,7 @@
         document.querySelectorAll('#menu-options .menu-option').forEach((o) => o.classList.remove('is-selected'));
         el.classList.add('is-selected');
         document.getElementById('time-section').hidden = true;
+        resetCandidateMode();
         loadMonthAvailability();
         goToStep(3);
       });
@@ -388,11 +477,19 @@
 
   function renderSummary() {
     const el = document.getElementById('booking-summary');
-    el.innerHTML = `
-      <div>担当: ${state.selectedStaff ? state.selectedStaff.name : ''}</div>
-      <div>日時: ${state.selectedDate} ${state.selectedTime}</div>
-      <div>メニュー: ${state.selectedMenu ? menuOptionText(state.selectedMenu) : ''}</div>
-    `;
+    const staffLine = `<div>担当: ${state.selectedStaff ? state.selectedStaff.name : ''}</div>`;
+    const menuLine = `<div>メニュー: ${state.selectedMenu ? menuOptionText(state.selectedMenu) : ''}</div>`;
+    const submitBtn = document.querySelector('#customer-form button[type="submit"]');
+    if (state.mode === 'candidates') {
+      const datesHtml = state.candidateList
+        .map((c, i) => `<div>第${i + 1}希望: ${c.date} ${c.time}</div>`)
+        .join('');
+      el.innerHTML = staffLine + datesHtml + menuLine;
+      if (submitBtn) submitBtn.textContent = '候補日を送信する';
+    } else {
+      el.innerHTML = `${staffLine}<div>日時: ${state.selectedDate} ${state.selectedTime}</div>${menuLine}`;
+      if (submitBtn) submitBtn.textContent = '予約する';
+    }
   }
 
   // ---------- Step 4: Submit ----------
@@ -409,11 +506,19 @@
     const submitBtn = form.querySelector('button[type="submit"]');
     submitBtn.disabled = true;
 
-    try {
-      const res = await fetch('/api/booking', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
+    const isCandidateMode = state.mode === 'candidates';
+    const endpoint = isCandidateMode ? '/api/booking/candidates' : '/api/booking';
+    const payload = isCandidateMode
+      ? {
+          token: state.token,
+          staffId: state.selectedStaff ? state.selectedStaff.id : null,
+          menu: state.selectedMenu ? state.selectedMenu.id : null,
+          name,
+          phone,
+          consultation,
+          dates: state.candidateList,
+        }
+      : {
           token: state.token,
           staffId: state.selectedStaff ? state.selectedStaff.id : null,
           date: state.selectedDate,
@@ -422,7 +527,13 @@
           name,
           phone,
           consultation,
-        }),
+        };
+
+    try {
+      const res = await fetch(endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
       });
       const data = await res.json();
       if (!res.ok || !data.ok) {
@@ -434,6 +545,8 @@
         submitBtn.disabled = false;
         return;
       }
+      document.getElementById('done-message-single').hidden = isCandidateMode;
+      document.getElementById('done-message-candidates').hidden = !isCandidateMode;
       showScreen(doneScreen);
     } catch (err) {
       errorEl.textContent = '通信エラーが発生しました。もう一度お試しください。';

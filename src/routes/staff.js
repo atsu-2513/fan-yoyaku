@@ -11,6 +11,11 @@ const {
   confirmReservation,
   cancelReservation,
   copyOpenSlotsToDates,
+  upsertCustomer,
+  listCustomersForStaff,
+  getCustomerById,
+  updateCustomer,
+  deleteCustomer,
 } = require('../db');
 const { isBusinessDay, getSlotTimes, menuLabel } = require('../businessHours');
 const { hashPassword, verifyPassword, createSessionCookie, clearSessionCookie, getStaffIdFromRequest } = require('../auth');
@@ -170,6 +175,51 @@ router.post('/staff/api/reservations/:id/cancel', requireStaffAuth, async (req, 
   }
 
   res.json({ ok: true, reservation });
+});
+
+// ---------- 顧客管理(スタッフごとの簡易リスト) ----------
+router.get('/staff/api/customers', requireStaffAuth, async (req, res) => {
+  const customers = await listCustomersForStaff(req.staff.id);
+  res.json({ ok: true, customers });
+});
+
+// 電話予約・walk-inのお客様などを手動で追加する(すでに同じ電話番号があれば名前だけ更新)
+router.post('/staff/api/customers', requireStaffAuth, async (req, res) => {
+  const { name, phone } = req.body || {};
+  const nameTrimmed = typeof name === 'string' ? name.trim().slice(0, 100) : '';
+  const phoneTrimmed = typeof phone === 'string' ? phone.trim().slice(0, 20) : '';
+  if (!nameTrimmed || !phoneTrimmed) {
+    return res.status(400).json({ ok: false, error: 'missing_fields' });
+  }
+  await upsertCustomer(req.staff.id, nameTrimmed, phoneTrimmed);
+  const customers = await listCustomersForStaff(req.staff.id);
+  res.json({ ok: true, customers });
+});
+
+router.put('/staff/api/customers/:id', requireStaffAuth, async (req, res) => {
+  const id = Number(req.params.id);
+  const existing = await getCustomerById(id);
+  if (!existing || Number(existing.staff_id) !== Number(req.staff.id)) {
+    return res.status(404).json({ ok: false, error: 'not_found' });
+  }
+  const { name, memo } = req.body || {};
+  const nameTrimmed = typeof name === 'string' ? name.trim().slice(0, 100) : existing.name;
+  const memoTrimmed = typeof memo === 'string' ? memo.trim().slice(0, 1000) : existing.memo;
+  if (!nameTrimmed) {
+    return res.status(400).json({ ok: false, error: 'missing_fields' });
+  }
+  const customer = await updateCustomer(id, { name: nameTrimmed, memo: memoTrimmed });
+  res.json({ ok: true, customer });
+});
+
+router.delete('/staff/api/customers/:id', requireStaffAuth, async (req, res) => {
+  const id = Number(req.params.id);
+  const existing = await getCustomerById(id);
+  if (!existing || Number(existing.staff_id) !== Number(req.staff.id)) {
+    return res.status(404).json({ ok: false, error: 'not_found' });
+  }
+  await deleteCustomer(id);
+  res.json({ ok: true });
 });
 
 module.exports = router;

@@ -208,3 +208,14 @@ input {
   resize: vertical;
 }
 .reply-sent { font-size: 12px; color: var(--muted); white-space: pre-wrap; }
+.customer-add-form {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 14px;
+}
+.customer-add-form input {
+  flex: 1 1 140px;
+}
+.customer-add-form .btn { flex: 0 0 auto; }

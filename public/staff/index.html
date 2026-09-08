@@ -69,6 +69,31 @@
     </section>
 
     <section class="card">
+      <h2>顧客管理</h2>
+      <p class="slot-hint">ご予約が入ると自動で一覧に追加されます。お電話でのご予約など、こちらから直接追加することもできます。</p>
+      <form id="customer-add-form" class="customer-add-form">
+        <input type="text" name="name" placeholder="お名前" required maxlength="100" />
+        <input type="tel" name="phone" placeholder="電話番号" required maxlength="20" />
+        <button type="submit" class="btn btn--ghost">追加する</button>
+      </form>
+      <table class="table">
+        <thead>
+          <tr>
+            <th>お名前</th>
+            <th>電話番号</th>
+            <th>予約回数</th>
+            <th>最終予約日</th>
+            <th>メモ</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody id="customers-body"></tbody>
+      </table>
+      <p id="customers-empty-message" class="empty-message" hidden>顧客情報はまだありません。</p>
+      <p id="customer-message" class="message" hidden style="margin-top:12px;"></p>
+    </section>
+
+    <section class="card">
       <h2>パスワード変更</h2>
       <form id="password-form">
         <label>

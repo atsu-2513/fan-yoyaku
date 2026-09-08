@@ -31,6 +31,7 @@
       document.getElementById('staff-name').textContent = `hair salon FAN（${state.staff.name}さん）`;
       renderCalendar();
       loadReservations();
+      loadCustomers();
     } catch (err) {
       window.location.href = '/staff/login.html';
     }
@@ -380,6 +381,153 @@
       btn.textContent = '確定する';
     }
   }
+
+  // ---------- 顧客管理 ----------
+  async function loadCustomers() {
+    const tbody = document.getElementById('customers-body');
+    const emptyMessage = document.getElementById('customers-empty-message');
+    tbody.innerHTML = '';
+    try {
+      const res = await fetch('/staff/api/customers');
+      const data = await res.json();
+      const customers = data.customers || [];
+      emptyMessage.hidden = customers.length > 0;
+      customers.forEach((c) => tbody.appendChild(renderCustomerRow(c)));
+    } catch (err) {
+      emptyMessage.hidden = false;
+      emptyMessage.textContent = '読み込みに失敗しました。';
+    }
+  }
+
+  function renderCustomerRow(c) {
+    const tr = document.createElement('tr');
+
+    const nameTd = document.createElement('td');
+    const nameInput = document.createElement('input');
+    nameInput.type = 'text';
+    nameInput.value = c.name;
+    nameInput.maxLength = 100;
+    nameInput.style.width = '100%';
+    nameInput.style.fontSize = '13px';
+    nameTd.appendChild(nameInput);
+
+    const phoneTd = document.createElement('td');
+    phoneTd.textContent = c.phone;
+
+    const countTd = document.createElement('td');
+    countTd.textContent = c.visit_count || 0;
+
+    const lastVisitTd = document.createElement('td');
+    lastVisitTd.textContent = c.last_visit_date || '—';
+
+    const memoTd = document.createElement('td');
+    memoTd.style.minWidth = '160px';
+    const memoInput = document.createElement('textarea');
+    memoInput.className = 'reply-input';
+    memoInput.rows = 2;
+    memoInput.maxLength = 1000;
+    memoInput.placeholder = 'アレルギー・ご要望などのメモ（任意）';
+    memoInput.value = c.memo || '';
+    memoTd.appendChild(memoInput);
+
+    const actionTd = document.createElement('td');
+    const wrap = document.createElement('div');
+    wrap.style.display = 'flex';
+    wrap.style.flexDirection = 'column';
+    wrap.style.gap = '6px';
+    const saveBtn = document.createElement('button');
+    saveBtn.className = 'btn btn--ghost';
+    saveBtn.textContent = '保存';
+    saveBtn.addEventListener('click', () => saveCustomer(c.id, nameInput.value, memoInput.value, saveBtn));
+    const deleteBtn = document.createElement('button');
+    deleteBtn.className = 'btn btn--ghost';
+    deleteBtn.textContent = '削除';
+    deleteBtn.addEventListener('click', () => deleteCustomerAction(c.id, deleteBtn));
+    wrap.append(saveBtn, deleteBtn);
+    actionTd.appendChild(wrap);
+
+    tr.append(nameTd, phoneTd, countTd, lastVisitTd, memoTd, actionTd);
+    return tr;
+  }
+
+  async function saveCustomer(id, name, memo, btn) {
+    const nameTrimmed = name.trim();
+    if (!nameTrimmed) {
+      alert('お名前を入力してください。');
+      return;
+    }
+    btn.disabled = true;
+    try {
+      const res = await fetch(`/staff/api/customers/${id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: nameTrimmed, memo }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.ok) {
+        alert('保存に失敗しました。');
+        return;
+      }
+      loadCustomers();
+    } catch (err) {
+      alert('通信エラーが発生しました。');
+    } finally {
+      btn.disabled = false;
+    }
+  }
+
+  async function deleteCustomerAction(id, btn) {
+    if (!window.confirm('この顧客情報を削除しますか？（予約の記録自体は消えません）')) return;
+    btn.disabled = true;
+    try {
+      const res = await fetch(`/staff/api/customers/${id}`, { method: 'DELETE' });
+      const data = await res.json();
+      if (!res.ok || !data.ok) {
+        alert('削除に失敗しました。');
+        btn.disabled = false;
+        return;
+      }
+      loadCustomers();
+    } catch (err) {
+      alert('通信エラーが発生しました。');
+      btn.disabled = false;
+    }
+  }
+
+  document.getElementById('customer-add-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const messageEl = document.getElementById('customer-message');
+    messageEl.hidden = true;
+    const form = e.target;
+    const name = form.name.value.trim();
+    const phone = form.phone.value.trim();
+    const submitBtn = form.querySelector('button[type="submit"]');
+    submitBtn.disabled = true;
+    try {
+      const res = await fetch('/staff/api/customers', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name, phone }),
+      });
+      const data = await res.json();
+      messageEl.hidden = false;
+      if (!res.ok || !data.ok) {
+        messageEl.className = 'message message--error';
+        messageEl.textContent = '追加に失敗しました。';
+        return;
+      }
+      messageEl.className = 'message message--success';
+      messageEl.textContent = '追加しました。';
+      form.reset();
+      loadCustomers();
+    } catch (err) {
+      messageEl.hidden = false;
+      messageEl.className = 'message message--error';
+      messageEl.textContent = '通信エラーが発生しました。';
+    } finally {
+      submitBtn.disabled = false;
+    }
+  });
 
   // ---------- パスワード変更 ----------
   document.getElementById('password-form').addEventListener('submit', async (e) => {

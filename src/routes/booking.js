@@ -5,6 +5,7 @@ const {
   getTakenSlots,
   getTakenSlotsForRange,
   createReservation,
+  upsertCustomer,
   listActiveStaff,
   getStaffById,
   getOpenSlotsForStaff,
@@ -173,6 +174,12 @@ router.post('/api/booking', async (req, res) => {
     durationMinutes: selectedMenu.durationMinutes,
   });
   await markTokenUsed(token);
+
+  try {
+    await upsertCustomer(staffIdNum, reservation.name, reservation.phone);
+  } catch (err) {
+    console.error('顧客リストへの登録に失敗しました:', err);
+  }
 
   try {
     await pushText(

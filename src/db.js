@@ -81,6 +81,16 @@ async function initSchema() {
             price_override INTEGER,
             PRIMARY KEY (staff_id, menu_id)
           )`,
+          `CREATE TABLE IF NOT EXISTS customers (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            staff_id INTEGER NOT NULL,
+            name TEXT NOT NULL,
+            phone TEXT NOT NULL,
+            memo TEXT,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            UNIQUE(staff_id, phone)
+          )`,
         ],
         'write'
       );
@@ -489,6 +499,56 @@ async function getTakenSlotsForRange(staffId, startDate, endDate) {
   return out;
 }
 
+// ---------- 顧客管理(スタッフごとの簡易リスト) ----------
+// 予約が入るたび自動で追加/更新される(名前だけ最新化し、メモは上書きしない)。
+// スタッフが手動でお客様を追加する場合も同じ関数を使う(電話番号が既にあれば名前だけ更新)。
+async function upsertCustomer(staffId, name, phone) {
+  await ready();
+  const now = new Date().toISOString();
+  await client.execute({
+    sql: `INSERT INTO customers (staff_id, name, phone, memo, created_at, updated_at)
+          VALUES (?, ?, ?, '', ?, ?)
+          ON CONFLICT(staff_id, phone) DO UPDATE SET name = excluded.name, updated_at = excluded.updated_at`,
+    args: [staffId, name, phone, now, now],
+  });
+}
+
+// そのスタッフの顧客一覧を返す。予約回数・最終予約日は reservations から都度集計する
+// (キャンセルされた予約は数えない。手入力の集計列を持たないので実態とズレない)
+async function listCustomersForStaff(staffId) {
+  await ready();
+  const result = await client.execute({
+    sql: `SELECT c.*,
+            (SELECT COUNT(*) FROM reservations r WHERE r.staff_id = c.staff_id AND r.phone = c.phone AND r.status != 'cancelled') AS visit_count,
+            (SELECT MAX(date) FROM reservations r WHERE r.staff_id = c.staff_id AND r.phone = c.phone AND r.status != 'cancelled') AS last_visit_date
+          FROM customers c
+          WHERE c.staff_id = ?
+          ORDER BY last_visit_date DESC, c.name ASC`,
+    args: [staffId],
+  });
+  return result.rows;
+}
+
+async function getCustomerById(id) {
+  await ready();
+  const result = await client.execute({ sql: `SELECT * FROM customers WHERE id = ?`, args: [id] });
+  return result.rows[0] || null;
+}
+
+async function updateCustomer(id, { name, memo }) {
+  await ready();
+  await client.execute({
+    sql: `UPDATE customers SET name = ?, memo = ?, updated_at = ? WHERE id = ?`,
+    args: [name, memo || null, new Date().toISOString(), id],
+  });
+  return getCustomerById(id);
+}
+
+async function deleteCustomer(id) {
+  await ready();
+  await client.execute({ sql: `DELETE FROM customers WHERE id = ?`, args: [id] });
+}
+
 async function createReservation({ lineUserId, staffId, date, time, menu, name, phone, consultation, durationMinutes }) {
   await ready();
   const insert = await client.execute({
@@ -617,6 +677,11 @@ module.exports = {
   getTakenSlots,
   getTakenSlotsForRange,
   createReservation,
+  upsertCustomer,
+  listCustomersForStaff,
+  getCustomerById,
+  updateCustomer,
+  deleteCustomer,
   listReservationsWithStaff,
   listReservationsForStaff,
   getReservation,

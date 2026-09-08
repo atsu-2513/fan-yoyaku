@@ -6,6 +6,7 @@ const {
   openSlot,
   closeSlot,
   getOpenSlotsForStaff,
+  getTakenSlots,
   listReservationsForStaff,
   getReservation,
   confirmReservation,

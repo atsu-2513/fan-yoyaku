@@ -621,6 +621,26 @@ async function getCustomerHistory(staffId, phone) {
   return result.rows;
 }
 
+// この電話番号のお客様に紐づくLINEユーザーIDを、直近の予約・候補日リクエストから探す
+// (customersテーブル自体にはLINEユーザーIDを持たないため、任意タイミングでLINEメッセージを
+// 送る機能のために、実際にLINEから予約/リクエストしてきた履歴から逆引きする)
+async function getLineUserIdForCustomer(staffId, phone) {
+  await ready();
+  const result = await client.execute({
+    sql: `SELECT line_user_id, created_at FROM (
+            SELECT line_user_id, created_at FROM reservations
+              WHERE staff_id = ? AND phone = ? AND line_user_id IS NOT NULL
+            UNION ALL
+            SELECT line_user_id, created_at FROM candidate_requests
+              WHERE staff_id = ? AND phone = ? AND line_user_id IS NOT NULL
+          )
+          ORDER BY created_at DESC
+          LIMIT 1`,
+    args: [staffId, phone, staffId, phone],
+  });
+  return result.rows[0] ? result.rows[0].line_user_id : null;
+}
+
 async function deleteCustomer(id) {
   await ready();
   await client.execute({ sql: `DELETE FROM customers WHERE id = ?`, args: [id] });
@@ -1041,6 +1061,7 @@ module.exports = {
   updateCustomer,
   deleteCustomer,
   getCustomerHistory,
+  getLineUserIdForCustomer,
   listAllCustomersWithStaff,
   listQuizQuestionsWithOptions,
   createQuizQuestion,

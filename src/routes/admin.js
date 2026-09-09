@@ -20,6 +20,7 @@ const {
   listAllCustomersWithStaff,
   getCustomerById,
   getCustomerHistory,
+  getLineUserIdForCustomer,
   listQuizQuestionsWithOptions,
   createQuizQuestion,
   updateQuizQuestion,
@@ -108,6 +109,27 @@ router.get('/api/admin/customers/:id/history', async (req, res) => {
   const history = [];
   for (const r of rows) history.push({ ...r, menuLabel: await menuLabel(r.menu) });
   res.json({ ok: true, history });
+});
+
+// お客様に任意のタイミングでLINEメッセージを送る(オーナーはどのスタッフのお客様にも送れる)
+router.post('/api/admin/customers/:id/message', async (req, res) => {
+  const id = Number(req.params.id);
+  const existing = await getCustomerById(id);
+  if (!existing) return res.status(404).json({ ok: false, error: 'not_found' });
+  const message = typeof req.body?.message === 'string' ? req.body.message.trim().slice(0, 1000) : '';
+  if (!message) return res.status(400).json({ ok: false, error: 'message_required' });
+
+  const lineUserId = await getLineUserIdForCustomer(existing.staff_id, existing.phone);
+  if (!lineUserId) return res.status(400).json({ ok: false, error: 'no_line_user' });
+
+  try {
+    await pushText(lineUserId, message);
+  } catch (err) {
+    console.error('LINE push (顧客への任意メッセージ/admin) failed:', err);
+    return res.status(502).json({ ok: false, error: 'line_push_failed' });
+  }
+
+  res.json({ ok: true });
 });
 
 // スタッフの通知先メールアドレスを設定(オーナーがまとめて管理する)

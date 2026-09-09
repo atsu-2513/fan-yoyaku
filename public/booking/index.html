@@ -54,10 +54,10 @@
       <!-- Step 3: 日時選択 -->
       <section id="step-3" class="step">
         <div id="candidate-mode-intro" class="step-actions" style="margin-bottom:14px;">
-          <button type="button" id="candidate-mode-start-btn" class="btn btn--ghost">今すぐ日時が決まらない方はこちら（候補日を出して相談する）</button>
+          <button type="button" id="candidate-mode-start-btn" class="btn btn--ghost">行きたい日が埋まっていた方はこちら【キャンセル待ち】</button>
         </div>
         <div id="candidate-mode-banner" class="message" hidden>
-          <p>候補日を選択中です（第<span id="candidate-round-num"></span>希望）。ご都合の良い日を最大3つまでお選びいただけます。</p>
+          <p>キャンセル待ちの登録中です（第<span id="candidate-round-num"></span>希望）。すでに満席の日でも、ご希望の日時を最大3つまで登録できます。キャンセルが出た場合、店舗からご連絡します。</p>
         </div>
         <div class="calendar">
           <div class="calendar__nav">
@@ -77,7 +77,7 @@
         </div>
         <div id="candidate-list" class="summary" hidden></div>
         <div id="candidate-mode-actions" class="step-actions" hidden>
-          <button type="button" id="candidate-continue-btn" class="btn" hidden>この内容で相談する</button>
+          <button type="button" id="candidate-continue-btn" class="btn" hidden>この内容でキャンセル待ちに登録する</button>
           <button type="button" id="candidate-mode-cancel-btn" class="btn btn--ghost">通常の予約に戻る</button>
         </div>
         <div class="step-actions">
@@ -118,9 +118,9 @@
         店舗からの確定連絡をお待ちください。
       </p>
       <p id="done-message-candidates" class="message message--success" hidden>
-        候補日を受け付けました。<br />
+        キャンセル待ちを受け付けました。<br />
         LINEにも確認メッセージをお送りしました。<br />
-        店舗で確認のうえ、確定のご連絡をいたします。
+        キャンセルなどでご希望の日時が空きましたら、店舗からご連絡いたします。
       </p>
     </div>
   </div>

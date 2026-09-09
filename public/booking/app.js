@@ -174,13 +174,17 @@
     const timeSection = document.getElementById('time-section');
     const label = document.getElementById('selected-date-label');
     const slotsEl = document.getElementById('time-slots');
+    const isCandidateMode = state.mode === 'candidates';
     timeSection.hidden = false;
-    label.textContent = `${dateStr} の空き時間`;
+    label.textContent = isCandidateMode ? `${dateStr} の時間を選択` : `${dateStr} の空き時間`;
     slotsEl.innerHTML = '<p class="time-empty">読み込み中...</p>';
 
     try {
+      // キャンセル待ちモードでは、実際の空き状況(埋まっているかどうか)は問わず、
+      // 営業時間内でそのメニューが収まる時間を全て候補として選べるようにする
+      const endpoint = isCandidateMode ? '/api/booking/all-slots' : '/api/booking/availability';
       const res = await fetch(
-        `/api/booking/availability?token=${encodeURIComponent(state.token)}&date=${encodeURIComponent(
+        `${endpoint}?token=${encodeURIComponent(state.token)}&date=${encodeURIComponent(
           dateStr
         )}&staffId=${encodeURIComponent(state.selectedStaff.id)}&menu=${encodeURIComponent(state.selectedMenu.id)}`
       );
@@ -194,7 +198,9 @@
         return;
       }
       if (!data.slots.length) {
-        slotsEl.innerHTML = '<p class="time-empty">この日は空きがありません。</p>';
+        slotsEl.innerHTML = isCandidateMode
+          ? '<p class="time-empty">この日は選べる時間がありません。</p>'
+          : '<p class="time-empty">この日は空きがありません。</p>';
         return;
       }
       slotsEl.innerHTML = '';

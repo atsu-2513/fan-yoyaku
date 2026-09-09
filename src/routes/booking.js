@@ -240,8 +240,38 @@ router.post('/api/booking', async (req, res) => {
   res.json({ ok: true, reservation });
 });
 
+// キャンセル待ち用: 実際の空き状況(スタッフの開放・他の予約)に関係なく、
+// 営業時間内でそのメニューの施術時間が収まる開始時刻を全て返す
+// (「行きたい日が埋まっていた方」がその日・その時間を候補として選べるようにするため)
+router.get('/api/booking/all-slots', async (req, res) => {
+  const { token, staffId, menu, date } = req.query;
+  const row = await getValidToken(token);
+  if (!row) return res.status(400).json({ ok: false, error: 'invalid_or_expired_token' });
+  if (!date) return res.status(400).json({ ok: false, error: 'date_required' });
+  const staffIdNum = Number(staffId);
+  if (!staffIdNum) return res.status(400).json({ ok: false, error: 'staff_required' });
+  const staff = await getStaffById(staffIdNum);
+  if (!staff || !staff.active) return res.status(400).json({ ok: false, error: 'invalid_staff' });
+  const staffMenus = await listMenusForStaff(staffIdNum);
+  const selectedMenu = staffMenus.find((m) => m.id === menu);
+  if (!selectedMenu) return res.status(400).json({ ok: false, error: 'invalid_menu' });
+
+  if (!(await isBusinessDay(date))) {
+    return res.json({ ok: true, date, businessDay: false, slots: [] });
+  }
+  const candidateSlots = await slotsForDate(date);
+  const slots = computeAvailableStartTimes({
+    candidateSlots,
+    openSlots: candidateSlots,
+    takenSlots: [],
+    durationMinutes: selectedMenu.durationMinutes,
+  });
+  res.json({ ok: true, date, businessDay: true, slots });
+});
+
 // 候補日リクエスト作成(お客様が複数の希望日時(第1〜第3希望など)を提示し、
-// 後でスタッフ/オーナーがそのうち1つを確定する)
+// 後でスタッフ/オーナーがそのうち1つを確定する。すでに満席の日時でも
+// 「キャンセル待ち」として登録できるよう、この時点では実際の空き状況は問わない)
 router.post('/api/booking/candidates', async (req, res) => {
   const { token, staffId, menu, name, phone, consultation, dates } = req.body || {};
 
@@ -273,17 +303,18 @@ router.post('/api/booking/candidates', async (req, res) => {
     if (!(await isBusinessDay(date))) {
       return res.status(400).json({ ok: false, error: 'invalid_date_or_time' });
     }
+    // キャンセル待ちなので、すでに埋まっている時間でも登録できる。
+    // 「営業時間内にそのメニューの施術時間が収まる時刻か」だけを確認する
+    // (実際に空いているかどうかは、スタッフ/オーナーが確定する直前に別途チェックする)
     const candidateSlots = await slotsForDate(date);
-    const openSlots = await getOpenSlotsForStaff(staffIdNum, date);
-    const takenSlots = await getTakenSlots(staffIdNum, date);
-    const available = computeAvailableStartTimes({
+    const possible = computeAvailableStartTimes({
       candidateSlots,
-      openSlots,
-      takenSlots,
+      openSlots: candidateSlots,
+      takenSlots: [],
       durationMinutes: selectedMenu.durationMinutes,
     });
-    if (!available.includes(time)) {
-      return res.status(409).json({ ok: false, error: 'slot_taken', date, time });
+    if (!possible.includes(time)) {
+      return res.status(400).json({ ok: false, error: 'invalid_date_or_time', date, time });
     }
     cleanDates.push({ date, time });
   }
@@ -314,13 +345,13 @@ router.post('/api/booking/candidates', async (req, res) => {
   try {
     await pushText(
       row.line_user_id,
-      `${request.name}様\n候補日を受け付けました。\n\n` +
+      `${request.name}様\nキャンセル待ちを受け付けました。\n\n` +
         cleanDates.map((d, i) => `第${i + 1}希望: ${d.date} ${d.time}`).join('\n') +
         `\n担当: ${staff.name}\nメニュー: ${await menuLabel(menu)}\n\n` +
-        `店舗で確認のうえ、確定のご連絡をいたします。`
+        `キャンセルなどでご希望の日時が空きましたら、店舗からご連絡いたします。`
     );
   } catch (err) {
-    console.error('LINE push (候補日受付) failed:', err);
+    console.error('LINE push (キャンセル待ち受付) failed:', err);
   }
 
   try {
@@ -328,9 +359,9 @@ router.post('/api/booking/candidates', async (req, res) => {
     if (recipients.length) {
       await sendMail({
         to: recipients,
-        subject: `【候補日リクエスト】${staff.name}様指名`,
+        subject: `【キャンセル待ち】${staff.name}様指名`,
         text:
-          `候補日リクエストが届きました。\n\n` +
+          `キャンセル待ちのリクエストが届きました。\n\n` +
           cleanDates.map((d, i) => `第${i + 1}希望: ${d.date} ${d.time}`).join('\n') +
           `\n担当: ${staff.name}\nメニュー: ${await menuLabel(menu)}\n` +
           `お名前: ${request.name}\n電話番号: ${request.phone}\n` +
@@ -339,7 +370,7 @@ router.post('/api/booking/candidates', async (req, res) => {
       });
     }
   } catch (err) {
-    console.error('メール通知(候補日リクエスト)の送信に失敗しました:', err);
+    console.error('メール通知(キャンセル待ち)の送信に失敗しました:', err);
   }
 
   res.json({ ok: true, request });

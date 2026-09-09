@@ -767,7 +767,10 @@
     const historyBtn = document.createElement('button');
     historyBtn.className = 'btn btn--ghost';
     historyBtn.textContent = '履歴を見る';
-    wrap.append(saveBtn, deleteBtn, historyBtn);
+    const messageBtn = document.createElement('button');
+    messageBtn.className = 'btn btn--ghost';
+    messageBtn.textContent = 'メッセージを送る';
+    wrap.append(saveBtn, deleteBtn, historyBtn, messageBtn);
     actionTd.appendChild(wrap);
 
     tr.append(nameTd, phoneTd, countTd, lastVisitTd, memoTd, actionTd);
@@ -780,8 +783,22 @@
     historyTr.appendChild(historyTd);
     historyBtn.addEventListener('click', () => toggleCustomerHistory(c.id, historyTr, historyTd, historyBtn));
 
+    const messageTr = document.createElement('tr');
+    messageTr.hidden = true;
+    const messageTd = document.createElement('td');
+    messageTd.colSpan = 6;
+    messageTd.className = 'history-cell';
+    messageTr.appendChild(messageTd);
+    messageBtn.addEventListener('click', () => {
+      messageTr.hidden = !messageTr.hidden;
+      if (!messageTr.hidden && !messageTd.dataset.built) {
+        buildCustomerMessagePanel(c, messageTd, `/staff/api/customers/${c.id}/message`);
+        messageTd.dataset.built = '1';
+      }
+    });
+
     const frag = document.createDocumentFragment();
-    frag.append(tr, historyTr);
+    frag.append(tr, historyTr, messageTr);
     return frag;
   }
 
@@ -831,6 +848,66 @@
     } finally {
       btn.disabled = false;
     }
+  }
+
+  // お客様に任意のタイミングでLINEメッセージを送るためのパネル(履歴パネルと同じ折りたたみ行に表示)
+  // endpoint は '/staff/api/customers/:id/message' のように、送信先のAPIパスを渡す
+  function buildCustomerMessagePanel(c, td, endpoint) {
+    td.innerHTML = '';
+    const label = document.createElement('p');
+    label.className = 'slot-hint';
+    label.textContent = `${c.name}様にLINEでメッセージを送ります。`;
+    const textarea = document.createElement('textarea');
+    textarea.className = 'reply-input';
+    textarea.rows = 3;
+    textarea.maxLength = 1000;
+    textarea.style.width = '100%';
+    textarea.placeholder = 'お客様に送るメッセージを入力してください';
+    const sendBtn = document.createElement('button');
+    sendBtn.type = 'button';
+    sendBtn.className = 'btn';
+    sendBtn.textContent = 'LINEで送信する';
+    sendBtn.style.marginTop = '8px';
+    const msg = document.createElement('p');
+    msg.className = 'message';
+    msg.hidden = true;
+    msg.style.marginTop = '8px';
+
+    sendBtn.addEventListener('click', async () => {
+      const text = textarea.value.trim();
+      if (!text) return;
+      sendBtn.disabled = true;
+      try {
+        const res = await fetch(endpoint, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ message: text }),
+        });
+        const data = await res.json();
+        if (!res.ok || !data.ok) {
+          msg.textContent =
+            data.error === 'no_line_user'
+              ? 'このお客様のLINEアカウントが確認できないため送信できません(LINE経由でのご予約履歴が必要です)。'
+              : '送信に失敗しました。';
+          msg.className = 'message message--error';
+          msg.hidden = false;
+          sendBtn.disabled = false;
+          return;
+        }
+        msg.textContent = '送信しました。';
+        msg.className = 'message message--success';
+        msg.hidden = false;
+        textarea.value = '';
+        sendBtn.disabled = false;
+      } catch (err) {
+        msg.textContent = '通信エラーが発生しました。';
+        msg.className = 'message message--error';
+        msg.hidden = false;
+        sendBtn.disabled = false;
+      }
+    });
+
+    td.append(label, textarea, sendBtn, msg);
   }
 
   async function saveCustomer(id, name, memo, btn) {

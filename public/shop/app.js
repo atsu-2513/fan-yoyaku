@@ -10,6 +10,8 @@
   const state = {
     token,
     products: [],
+    categories: [],
+    activeCategoryId: '', // '' = すべて
     quantities: {}, // { productId: qty }
   };
 
@@ -30,6 +32,8 @@
         return;
       }
       state.products = data.products || [];
+      state.categories = data.categories || [];
+      renderCategoryFilters();
       renderProductList();
       showScreen(listScreen);
     } catch (err) {
@@ -41,13 +45,50 @@
     return Number.isFinite(Number(price)) && price !== null ? `${Number(price).toLocaleString()}円` : '価格はお問い合わせください';
   }
 
+  function renderCategoryFilters() {
+    const wrap = document.getElementById('category-filters');
+    wrap.innerHTML = '';
+    if (!state.categories.length) {
+      wrap.hidden = true;
+      return;
+    }
+    wrap.hidden = false;
+
+    const allBtn = document.createElement('button');
+    allBtn.type = 'button';
+    allBtn.className = 'category-pill' + (state.activeCategoryId === '' ? ' category-pill--active' : '');
+    allBtn.textContent = 'すべて';
+    allBtn.addEventListener('click', () => {
+      state.activeCategoryId = '';
+      renderCategoryFilters();
+      renderProductList();
+    });
+    wrap.appendChild(allBtn);
+
+    state.categories.forEach((c) => {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'category-pill' + (String(state.activeCategoryId) === String(c.id) ? ' category-pill--active' : '');
+      btn.textContent = c.label;
+      btn.addEventListener('click', () => {
+        state.activeCategoryId = c.id;
+        renderCategoryFilters();
+        renderProductList();
+      });
+      wrap.appendChild(btn);
+    });
+  }
+
   function renderProductList() {
     const wrap = document.getElementById('product-list');
     const empty = document.getElementById('product-empty');
     wrap.innerHTML = '';
-    empty.hidden = state.products.length > 0;
+    const visibleProducts = state.activeCategoryId
+      ? state.products.filter((p) => String(p.category_id) === String(state.activeCategoryId))
+      : state.products;
+    empty.hidden = visibleProducts.length > 0;
 
-    state.products.forEach((p) => {
+    visibleProducts.forEach((p) => {
       const card = document.createElement('div');
       card.className = 'product-card';
 
@@ -82,6 +123,13 @@
         desc.className = 'product-card__desc';
         desc.textContent = p.description;
         body.appendChild(desc);
+      }
+
+      if (p.recommendedBy && p.recommendedBy.length) {
+        const badge = document.createElement('div');
+        badge.className = 'product-card__badge';
+        badge.textContent = `スタッフのおすすめ：${p.recommendedBy.map((s) => s.name).join('・')}`;
+        body.appendChild(badge);
       }
 
       const stepper = document.createElement('div');

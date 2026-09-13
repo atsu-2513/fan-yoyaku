@@ -1281,12 +1281,209 @@
     });
   }
 
+  let shopProductsReloadFn = null;
+  let refreshShopProductFormCategoriesFn = null;
+
+  // ---------- 店販カテゴリー(分類) ----------
+  function initShopCategories() {
+    const listWrap = document.getElementById('shop-categories-list');
+    const empty = document.getElementById('shop-categories-empty');
+    const message = document.getElementById('shop-category-message');
+
+    async function loadCategories() {
+      listWrap.innerHTML = '';
+      try {
+        const res = await fetch('/api/admin/shop-categories');
+        const data = await res.json();
+        const categories = data.categories || [];
+        empty.hidden = categories.length > 0;
+        categories.forEach((c) => listWrap.appendChild(renderCategoryRow(c)));
+      } catch (err) {
+        empty.hidden = false;
+        empty.textContent = '読み込みに失敗しました。';
+      }
+    }
+
+    function renderCategoryRow(c) {
+      const row = document.createElement('div');
+      row.className = 'card';
+      row.style.marginBottom = '8px';
+      row.style.display = 'flex';
+      row.style.alignItems = 'center';
+      row.style.gap = '8px';
+
+      const labelInput = document.createElement('input');
+      labelInput.type = 'text';
+      labelInput.value = c.label;
+      labelInput.style.flex = '1';
+
+      const saveBtn = document.createElement('button');
+      saveBtn.type = 'button';
+      saveBtn.className = 'btn btn--ghost';
+      saveBtn.textContent = '保存';
+      saveBtn.addEventListener('click', async () => {
+        const label = labelInput.value.trim();
+        if (!label) return;
+        saveBtn.disabled = true;
+        try {
+          const res = await fetch(`/api/admin/shop-categories/${c.id}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ label }),
+          });
+          const data = await res.json();
+          if (!res.ok || !data.ok) {
+            alert('保存に失敗しました。');
+            return;
+          }
+          loadCategories();
+          if (refreshShopProductFormCategoriesFn) refreshShopProductFormCategoriesFn();
+          if (shopProductsReloadFn) shopProductsReloadFn();
+        } catch (err) {
+          alert('通信エラーが発生しました。');
+        } finally {
+          saveBtn.disabled = false;
+        }
+      });
+
+      const deleteBtn = document.createElement('button');
+      deleteBtn.type = 'button';
+      deleteBtn.className = 'btn btn--ghost';
+      deleteBtn.textContent = '削除';
+      deleteBtn.addEventListener('click', async () => {
+        if (!window.confirm(`「${c.label}」を削除しますか？(このカテゴリーの商品は未分類になります)`)) return;
+        deleteBtn.disabled = true;
+        try {
+          const res = await fetch(`/api/admin/shop-categories/${c.id}`, { method: 'DELETE' });
+          const data = await res.json();
+          if (!res.ok || !data.ok) {
+            alert('削除に失敗しました。');
+            deleteBtn.disabled = false;
+            return;
+          }
+          loadCategories();
+          if (refreshShopProductFormCategoriesFn) refreshShopProductFormCategoriesFn();
+          if (shopProductsReloadFn) shopProductsReloadFn();
+        } catch (err) {
+          alert('通信エラーが発生しました。');
+          deleteBtn.disabled = false;
+        }
+      });
+
+      row.appendChild(labelInput);
+      row.appendChild(saveBtn);
+      row.appendChild(deleteBtn);
+      return row;
+    }
+
+    document.getElementById('shop-category-add-form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const input = document.getElementById('new-shop-category-label');
+      const label = input.value.trim();
+      if (!label) return;
+      try {
+        const res = await fetch('/api/admin/shop-categories', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ label }),
+        });
+        const data = await res.json();
+        message.hidden = false;
+        if (!res.ok || !data.ok) {
+          message.textContent = '追加に失敗しました。';
+          return;
+        }
+        message.textContent = 'カテゴリーを追加しました。';
+        input.value = '';
+        loadCategories();
+        if (refreshShopProductFormCategoriesFn) refreshShopProductFormCategoriesFn();
+      } catch (err) {
+        message.hidden = false;
+        message.textContent = '通信エラーが発生しました。';
+      }
+    });
+
+    loadCategories();
+  }
+
   function initShopProducts() {
     const listWrap = document.getElementById('shop-products-list');
     const empty = document.getElementById('shop-products-empty');
     const message = document.getElementById('shop-product-message');
+    const addCategorySelect = document.getElementById('new-shop-product-category');
+    const addStaffCheckboxesWrap = document.getElementById('new-shop-product-staff-checkboxes');
+
+    let categoriesCache = [];
+    let staffCache = [];
+
+    async function loadCategoriesAndStaff() {
+      try {
+        const [catRes, staffRes] = await Promise.all([
+          fetch('/api/admin/shop-categories'),
+          fetch('/api/admin/staff'),
+        ]);
+        const catData = await catRes.json();
+        const staffData = await staffRes.json();
+        categoriesCache = catData.categories || [];
+        staffCache = staffData.staff || [];
+      } catch (err) {
+        categoriesCache = [];
+        staffCache = [];
+      }
+    }
+
+    function buildCategorySelect(selectedId) {
+      const select = document.createElement('select');
+      select.style.width = '100%';
+      select.style.marginBottom = '6px';
+      const noneOption = document.createElement('option');
+      noneOption.value = '';
+      noneOption.textContent = 'カテゴリー：未分類';
+      select.appendChild(noneOption);
+      categoriesCache.forEach((c) => {
+        const opt = document.createElement('option');
+        opt.value = c.id;
+        opt.textContent = c.label;
+        if (selectedId && String(selectedId) === String(c.id)) opt.selected = true;
+        select.appendChild(opt);
+      });
+      return select;
+    }
+
+    function buildStaffCheckboxes(container, checkedIds) {
+      container.innerHTML = '';
+      const checkedSet = new Set((checkedIds || []).map(String));
+      staffCache.forEach((s) => {
+        const label = document.createElement('label');
+        label.style.display = 'inline-flex';
+        label.style.alignItems = 'center';
+        label.style.gap = '4px';
+        label.style.marginRight = '10px';
+        const cb = document.createElement('input');
+        cb.type = 'checkbox';
+        cb.value = String(s.id);
+        cb.checked = checkedSet.has(String(s.id));
+        label.appendChild(cb);
+        label.appendChild(document.createTextNode(s.name));
+        container.appendChild(label);
+      });
+    }
+
+    function refreshAddFormCategories() {
+      const current = addCategorySelect.value;
+      const rebuilt = buildCategorySelect(current);
+      addCategorySelect.innerHTML = '';
+      while (rebuilt.firstChild) {
+        addCategorySelect.appendChild(rebuilt.firstChild);
+      }
+      addCategorySelect.value = current;
+    }
+    refreshShopProductFormCategoriesFn = refreshAddFormCategories;
 
     async function loadShopProducts() {
+      await loadCategoriesAndStaff();
+      refreshAddFormCategories();
+      buildStaffCheckboxes(addStaffCheckboxesWrap, []);
       listWrap.innerHTML = '';
       try {
         const res = await fetch('/api/admin/shop-products');
@@ -1299,6 +1496,7 @@
         empty.textContent = '読み込みに失敗しました。';
       }
     }
+    shopProductsReloadFn = loadShopProducts;
 
     function renderProductCard(p) {
       const card = document.createElement('div');
@@ -1345,6 +1543,18 @@
       descInput.style.fontFamily = 'inherit';
       descInput.style.marginBottom = '6px';
 
+      const categorySelect = buildCategorySelect(p.category_id);
+
+      const staffWrap = document.createElement('div');
+      staffWrap.style.marginBottom = '6px';
+      const staffLabel = document.createElement('div');
+      staffLabel.className = 'slot-hint';
+      staffLabel.textContent = 'おすすめするスタッフ（任意）：';
+      const staffCheckboxes = document.createElement('div');
+      buildStaffCheckboxes(staffCheckboxes, (p.recommendedBy || []).map((r) => r.id));
+      staffWrap.appendChild(staffLabel);
+      staffWrap.appendChild(staffCheckboxes);
+
       const photoInput = document.createElement('input');
       photoInput.type = 'file';
       photoInput.accept = 'image/*';
@@ -1373,11 +1583,16 @@
       saveBtn.addEventListener('click', async () => {
         saveBtn.disabled = true;
         try {
+          const staffIds = Array.from(staffCheckboxes.querySelectorAll('input[type="checkbox"]:checked')).map(
+            (cb) => Number(cb.value)
+          );
           const body = {
             name: nameInput.value.trim(),
             price: priceInput.value === '' ? null : Number(priceInput.value),
             description: descInput.value.trim(),
             active: activeCheckbox.checked,
+            categoryId: categorySelect.value || null,
+            staffIds,
           };
           if (pendingPhotoData) body.photoData = pendingPhotoData;
           const res = await fetch(`/api/admin/shop-products/${p.id}`, {
@@ -1430,6 +1645,8 @@
       body.appendChild(nameInput);
       body.appendChild(priceInput);
       body.appendChild(descInput);
+      body.appendChild(categorySelect);
+      body.appendChild(staffWrap);
       body.appendChild(photoInput);
       body.appendChild(btnRow);
       card.appendChild(body);
@@ -1456,6 +1673,10 @@
         }
       }
 
+      const staffIds = Array.from(
+        addStaffCheckboxesWrap.querySelectorAll('input[type="checkbox"]:checked')
+      ).map((cb) => Number(cb.value));
+
       try {
         const res = await fetch('/api/admin/shop-products', {
           method: 'POST',
@@ -1465,6 +1686,8 @@
             price: priceInput.value === '' ? null : Number(priceInput.value),
             description: descInput.value.trim(),
             photoData,
+            categoryId: addCategorySelect.value || null,
+            staffIds,
           }),
         });
         const data = await res.json();
@@ -1478,6 +1701,8 @@
         priceInput.value = '';
         descInput.value = '';
         photoInput.value = '';
+        addCategorySelect.value = '';
+        buildStaffCheckboxes(addStaffCheckboxesWrap, []);
         loadShopProducts();
       } catch (err) {
         message.hidden = false;
@@ -1572,6 +1797,7 @@
   initQuiz();
   loadCandidateRequests();
   loadWaitlistAlerts();
+  initShopCategories();
   initShopProducts();
   loadShopOrders();
 })();

@@ -37,6 +37,11 @@ const {
   getWaitlistAlert,
   markWaitlistAlertStatus,
   updateReservationDateTime,
+  listShopCategories,
+  createShopCategory,
+  updateShopCategory,
+  deleteShopCategory,
+  setShopProductRecommendations,
   listAllShopProductsAdmin,
   createShopProduct,
   updateShopProduct,
@@ -534,34 +539,63 @@ router.post('/api/admin/reservations/:id/reschedule', async (req, res) => {
   res.json({ ok: true, reservation });
 });
 
-// ---------- 店販(商品管理・注文リクエスト) ----------
+// ---------- 店販(カテゴリー・商品管理・注文リクエスト) ----------
+
+router.get('/api/admin/shop-categories', async (req, res) => {
+  res.json({ ok: true, categories: await listShopCategories() });
+});
+
+router.post('/api/admin/shop-categories', async (req, res) => {
+  const { label } = req.body || {};
+  const trimmedLabel = typeof label === 'string' ? label.trim() : '';
+  if (!trimmedLabel) return res.status(400).json({ ok: false, error: 'label_required' });
+  const category = await createShopCategory(trimmedLabel);
+  res.json({ ok: true, category });
+});
+
+router.put('/api/admin/shop-categories/:id', async (req, res) => {
+  const { label } = req.body || {};
+  const trimmedLabel = typeof label === 'string' ? label.trim() : '';
+  if (!trimmedLabel) return res.status(400).json({ ok: false, error: 'label_required' });
+  const category = await updateShopCategory(req.params.id, trimmedLabel);
+  if (!category) return res.status(404).json({ ok: false, error: 'not_found' });
+  res.json({ ok: true, category });
+});
+
+router.delete('/api/admin/shop-categories/:id', async (req, res) => {
+  await deleteShopCategory(req.params.id);
+  res.json({ ok: true });
+});
 
 router.get('/api/admin/shop-products', async (req, res) => {
   res.json({ ok: true, products: await listAllShopProductsAdmin() });
 });
 
 router.post('/api/admin/shop-products', async (req, res) => {
-  const { name, price, description, photoData } = req.body || {};
+  const { name, price, description, photoData, categoryId, staffIds } = req.body || {};
   const trimmedName = typeof name === 'string' ? name.trim() : '';
   if (!trimmedName) return res.status(400).json({ ok: false, error: 'name_required' });
   const priceNum = price === '' || price === null || price === undefined ? null : Number(price);
   if (priceNum !== null && (!Number.isFinite(priceNum) || priceNum < 0)) {
     return res.status(400).json({ ok: false, error: 'invalid_price' });
   }
+  const cleanStaffIds = Array.isArray(staffIds) ? staffIds.map(Number).filter((n) => Number.isInteger(n)) : [];
   const product = await createShopProduct({
     name: trimmedName,
     price: priceNum,
     description: typeof description === 'string' ? description.trim().slice(0, 1000) : '',
     photoData: typeof photoData === 'string' ? photoData : null,
+    categoryId: typeof categoryId === 'string' && categoryId ? categoryId : null,
   });
-  res.json({ ok: true, product });
+  await setShopProductRecommendations(product.id, cleanStaffIds);
+  res.json({ ok: true, product: await getShopProductById(product.id) });
 });
 
 router.put('/api/admin/shop-products/:id', async (req, res) => {
   const id = Number(req.params.id);
   const existing = await getShopProductById(id);
   if (!existing) return res.status(404).json({ ok: false, error: 'not_found' });
-  const { name, price, description, photoData, active } = req.body || {};
+  const { name, price, description, photoData, active, categoryId, staffIds } = req.body || {};
   const trimmedName = typeof name === 'string' ? name.trim() : '';
   if (!trimmedName) return res.status(400).json({ ok: false, error: 'name_required' });
   const priceNum = price === '' || price === null || price === undefined ? null : Number(price);
@@ -577,8 +611,13 @@ router.put('/api/admin/shop-products/:id', async (req, res) => {
     photoData: keepExistingPhoto ? undefined : photoData,
     active: active !== false,
     keepExistingPhoto,
+    categoryId: typeof categoryId === 'string' && categoryId ? categoryId : null,
   });
-  res.json({ ok: true, product });
+  if (Array.isArray(staffIds)) {
+    const cleanStaffIds = staffIds.map(Number).filter((n) => Number.isInteger(n));
+    await setShopProductRecommendations(id, cleanStaffIds);
+  }
+  res.json({ ok: true, product: await getShopProductById(id) });
 });
 
 router.delete('/api/admin/shop-products/:id', async (req, res) => {

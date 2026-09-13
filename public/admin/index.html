@@ -185,6 +185,18 @@
     </section>
 
     <section class="menu-section">
+      <h2>店販カテゴリー（分類）の管理</h2>
+      <p class="slot-hint">シャンプー・トリートメント・アウトバスなど、商品を絞り込むための分類です。お客様は店販ページでカテゴリーから商品を探せます。</p>
+      <div id="shop-categories-list"></div>
+      <p id="shop-categories-empty" class="empty-message" hidden>カテゴリーはまだ登録されていません。</p>
+      <form id="shop-category-add-form" class="menu-add-form">
+        <input type="text" id="new-shop-category-label" placeholder="カテゴリー名（例：シャンプー）" required style="width:100%;" />
+        <button type="submit" class="btn btn--ghost">カテゴリーを追加</button>
+      </form>
+      <p id="shop-category-message" class="empty-message" hidden></p>
+    </section>
+
+    <section class="menu-section">
       <h2>店販商品の管理</h2>
       <p class="slot-hint">お客様がLINEの「店販」から見られる商品一覧です。写真は自動で縮小してから保存されます。</p>
       <div id="shop-products-list"></div>
@@ -193,6 +205,13 @@
         <input type="text" id="new-shop-product-name" placeholder="商品名" required style="width:100%;" />
         <input type="number" id="new-shop-product-price" placeholder="価格（円・任意）" min="0" style="width:100%;" />
         <textarea id="new-shop-product-description" placeholder="説明（任意）" rows="2" maxlength="1000" style="width:100%; font-family:inherit;"></textarea>
+        <select id="new-shop-product-category" style="width:100%;">
+          <option value="">カテゴリー：未分類</option>
+        </select>
+        <div id="new-shop-product-staff" class="slot-hint" style="width:100%;">
+          <span>おすすめするスタッフ（任意）：</span>
+          <div id="new-shop-product-staff-checkboxes"></div>
+        </div>
         <input type="file" id="new-shop-product-photo" accept="image/*" />
         <button type="submit" class="btn btn--ghost">商品を追加</button>
       </form>

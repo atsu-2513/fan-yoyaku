@@ -163,6 +163,17 @@ async function initSchema() {
             status TEXT NOT NULL DEFAULT 'pending',
             created_at TEXT NOT NULL
           )`,
+          `CREATE TABLE IF NOT EXISTS shop_categories (
+            id TEXT PRIMARY KEY,
+            label TEXT NOT NULL,
+            sort_order INTEGER NOT NULL DEFAULT 0,
+            created_at TEXT NOT NULL
+          )`,
+          `CREATE TABLE IF NOT EXISTS shop_product_staff_recommendations (
+            product_id INTEGER NOT NULL,
+            staff_id INTEGER NOT NULL,
+            PRIMARY KEY (product_id, staff_id)
+          )`,
         ],
         'write'
       );
@@ -204,6 +215,13 @@ async function initSchema() {
       const hasDuration = menuColumns.rows.some((c) => c.name === 'duration_minutes');
       if (!hasDuration) {
         await client.execute(`ALTER TABLE menus ADD COLUMN duration_minutes INTEGER NOT NULL DEFAULT 60`);
+      }
+
+      // 店販商品のカテゴリ(分類)。既存の商品は「未分類」のまま(NULL)扱いにする
+      const shopProductColumns = await client.execute(`PRAGMA table_info(shop_products)`);
+      const hasCategoryId = shopProductColumns.rows.some((c) => c.name === 'category_id');
+      if (!hasCategoryId) {
+        await client.execute(`ALTER TABLE shop_products ADD COLUMN category_id TEXT`);
       }
 
       // 予約作成時点でのメニュー施術時間のスナップショット(あとでメニューの時間設定を変えても、
@@ -1076,49 +1094,131 @@ async function markShopTokenUsed(token) {
   });
 }
 
+// 店販商品のカテゴリー(分類)。管理画面から自由に追加・編集できる。
+async function listShopCategories() {
+  await ready();
+  const result = await client.execute(`SELECT * FROM shop_categories ORDER BY sort_order ASC, created_at ASC`);
+  return result.rows;
+}
+
+async function getShopCategoryById(id) {
+  await ready();
+  const result = await client.execute({ sql: `SELECT * FROM shop_categories WHERE id = ?`, args: [id] });
+  return result.rows[0] || null;
+}
+
+async function createShopCategory(label) {
+  await ready();
+  const maxSort = await client.execute(`SELECT COALESCE(MAX(sort_order), -1) AS m FROM shop_categories`);
+  const sortOrder = Number(maxSort.rows[0].m) + 1;
+  const id = crypto.randomUUID();
+  await client.execute({
+    sql: `INSERT INTO shop_categories (id, label, sort_order, created_at) VALUES (?, ?, ?, ?)`,
+    args: [id, label, sortOrder, new Date().toISOString()],
+  });
+  return getShopCategoryById(id);
+}
+
+async function updateShopCategory(id, label) {
+  await ready();
+  await client.execute({ sql: `UPDATE shop_categories SET label = ? WHERE id = ?`, args: [label, id] });
+  return getShopCategoryById(id);
+}
+
+async function deleteShopCategory(id) {
+  await ready();
+  // このカテゴリーに属していた商品は「未分類」に戻す
+  await client.execute({ sql: `UPDATE shop_products SET category_id = NULL WHERE category_id = ?`, args: [id] });
+  await client.execute({ sql: `DELETE FROM shop_categories WHERE id = ?`, args: [id] });
+}
+
+// 商品ごとの「スタッフのおすすめ」設定(1商品に複数スタッフが紐づく)
+async function getShopRecommendationsMap() {
+  await ready();
+  const result = await client.execute(
+    `SELECT r.product_id AS product_id, s.id AS staff_id, s.name AS staff_name
+     FROM shop_product_staff_recommendations r
+     JOIN staff s ON s.id = r.staff_id
+     ORDER BY s.name ASC`
+  );
+  const map = {};
+  for (const row of result.rows) {
+    if (!map[row.product_id]) map[row.product_id] = [];
+    map[row.product_id].push({ id: row.staff_id, name: row.staff_name });
+  }
+  return map;
+}
+
+async function setShopProductRecommendations(productId, staffIds) {
+  await ready();
+  await client.execute({
+    sql: `DELETE FROM shop_product_staff_recommendations WHERE product_id = ?`,
+    args: [productId],
+  });
+  const uniqueStaffIds = [...new Set(staffIds || [])];
+  for (const staffId of uniqueStaffIds) {
+    await client.execute({
+      sql: `INSERT INTO shop_product_staff_recommendations (product_id, staff_id) VALUES (?, ?)`,
+      args: [productId, staffId],
+    });
+  }
+}
+
 async function listActiveShopProducts() {
   await ready();
   const result = await client.execute(
-    `SELECT id, name, price, description, photo_data, sort_order FROM shop_products WHERE active = 1 ORDER BY sort_order ASC, id ASC`
+    `SELECT id, name, price, description, photo_data, sort_order, category_id FROM shop_products WHERE active = 1 ORDER BY sort_order ASC, id ASC`
   );
-  return result.rows;
+  const recMap = await getShopRecommendationsMap();
+  return result.rows.map((row) => ({ ...row, recommendedBy: recMap[row.id] || [] }));
 }
 
 async function listAllShopProductsAdmin() {
   await ready();
   const result = await client.execute(`SELECT * FROM shop_products ORDER BY sort_order ASC, id ASC`);
-  return result.rows;
+  const recMap = await getShopRecommendationsMap();
+  return result.rows.map((row) => ({ ...row, recommendedBy: recMap[row.id] || [] }));
 }
 
 async function getShopProductById(id) {
   await ready();
   const result = await client.execute({ sql: `SELECT * FROM shop_products WHERE id = ?`, args: [id] });
-  return result.rows[0] || null;
+  const row = result.rows[0];
+  if (!row) return null;
+  const recResult = await client.execute({
+    sql: `SELECT s.id AS staff_id, s.name AS staff_name
+          FROM shop_product_staff_recommendations r
+          JOIN staff s ON s.id = r.staff_id
+          WHERE r.product_id = ?
+          ORDER BY s.name ASC`,
+    args: [id],
+  });
+  return { ...row, recommendedBy: recResult.rows.map((r) => ({ id: r.staff_id, name: r.staff_name })) };
 }
 
-async function createShopProduct({ name, price, description, photoData }) {
+async function createShopProduct({ name, price, description, photoData, categoryId }) {
   await ready();
   const maxSort = await client.execute(`SELECT COALESCE(MAX(sort_order), -1) AS m FROM shop_products`);
   const sortOrder = Number(maxSort.rows[0].m) + 1;
   const insert = await client.execute({
-    sql: `INSERT INTO shop_products (name, price, description, photo_data, active, sort_order, created_at)
-          VALUES (?, ?, ?, ?, 1, ?, ?)`,
-    args: [name, price, description || null, photoData || null, sortOrder, new Date().toISOString()],
+    sql: `INSERT INTO shop_products (name, price, description, photo_data, category_id, active, sort_order, created_at)
+          VALUES (?, ?, ?, ?, ?, 1, ?, ?)`,
+    args: [name, price, description || null, photoData || null, categoryId || null, sortOrder, new Date().toISOString()],
   });
   return getShopProductById(Number(insert.lastInsertRowid));
 }
 
-async function updateShopProduct(id, { name, price, description, photoData, active, keepExistingPhoto }) {
+async function updateShopProduct(id, { name, price, description, photoData, active, keepExistingPhoto, categoryId }) {
   await ready();
   if (keepExistingPhoto) {
     await client.execute({
-      sql: `UPDATE shop_products SET name = ?, price = ?, description = ?, active = ? WHERE id = ?`,
-      args: [name, price, description || null, active ? 1 : 0, id],
+      sql: `UPDATE shop_products SET name = ?, price = ?, description = ?, active = ?, category_id = ? WHERE id = ?`,
+      args: [name, price, description || null, active ? 1 : 0, categoryId || null, id],
     });
   } else {
     await client.execute({
-      sql: `UPDATE shop_products SET name = ?, price = ?, description = ?, photo_data = ?, active = ? WHERE id = ?`,
-      args: [name, price, description || null, photoData || null, active ? 1 : 0, id],
+      sql: `UPDATE shop_products SET name = ?, price = ?, description = ?, photo_data = ?, active = ?, category_id = ? WHERE id = ?`,
+      args: [name, price, description || null, photoData || null, active ? 1 : 0, categoryId || null, id],
     });
   }
   return getShopProductById(id);
@@ -1126,6 +1226,7 @@ async function updateShopProduct(id, { name, price, description, photoData, acti
 
 async function deleteShopProduct(id) {
   await ready();
+  await client.execute({ sql: `DELETE FROM shop_product_staff_recommendations WHERE product_id = ?`, args: [id] });
   await client.execute({ sql: `DELETE FROM shop_products WHERE id = ?`, args: [id] });
 }
 
@@ -1244,6 +1345,12 @@ module.exports = {
   createShopToken,
   getValidShopToken,
   markShopTokenUsed,
+  listShopCategories,
+  getShopCategoryById,
+  createShopCategory,
+  updateShopCategory,
+  deleteShopCategory,
+  setShopProductRecommendations,
   listActiveShopProducts,
   listAllShopProductsAdmin,
   getShopProductById,

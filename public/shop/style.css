@@ -85,6 +85,29 @@ body {
   border: 1px solid var(--border);
 }
 
+.category-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 14px;
+}
+.category-filters[hidden] { display: none; }
+.category-pill {
+  padding: 7px 14px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: #fff;
+  color: var(--ink);
+  font-size: 13px;
+  cursor: pointer;
+}
+.category-pill--active {
+  background: var(--brand);
+  border-color: var(--brand);
+  color: #fff;
+  font-weight: bold;
+}
+
 .product-list {
   display: flex;
   flex-direction: column;
@@ -134,6 +157,16 @@ body {
   margin-top: 4px;
   line-height: 1.5;
   white-space: pre-wrap;
+}
+.product-card__badge {
+  display: inline-block;
+  margin-top: 6px;
+  padding: 3px 8px;
+  border-radius: 999px;
+  background: #f5ecd8;
+  color: var(--brand-dark);
+  font-size: 11px;
+  font-weight: bold;
 }
 .qty-stepper {
   display: flex;

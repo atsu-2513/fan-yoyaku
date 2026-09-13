@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0" />
+<title>hair salon FAN | 店販</title>
+<link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div class="app">
+    <header class="header">
+      <h1>hair salon FAN</h1>
+      <p>店販商品のご案内</p>
+    </header>
+
+    <div id="error-screen" class="screen" hidden>
+      <p class="message message--error">
+        ご案内用のリンクが無効か、有効期限が切れています。<br />
+        お手数ですが、LINEでもう一度「店販」と送信してください。
+      </p>
+    </div>
+
+    <div id="list-screen" class="screen" hidden>
+      <div id="product-list" class="product-list"></div>
+      <p id="product-empty" class="empty-message" hidden>現在ご案内できる商品がありません。</p>
+      <div id="cart-bar" class="cart-bar" hidden>
+        <div class="cart-bar__total"><span id="cart-count">0</span>点 / 合計 <span id="cart-total">0</span>円</div>
+        <button type="button" id="go-to-form" class="btn" style="flex:0 0 auto; padding:10px 18px;">注文へ進む</button>
+      </div>
+    </div>
+
+    <div id="form-screen" class="screen" hidden>
+      <h3>お客様情報を入力してください</h3>
+      <div class="summary" id="order-summary"></div>
+      <form id="customer-form">
+        <label>
+          お名前
+          <input type="text" name="name" required autocomplete="name" placeholder="山田 太郎" />
+        </label>
+        <label>
+          電話番号
+          <input type="tel" name="phone" required autocomplete="tel" placeholder="09012345678" />
+        </label>
+        <div class="step-actions">
+          <button type="button" id="back-to-list" class="btn btn--ghost">戻る</button>
+          <button type="submit" class="btn">この内容で注文する</button>
+        </div>
+      </form>
+      <p id="submit-error" class="message message--error" hidden></p>
+    </div>
+
+    <div id="done-screen" class="screen" hidden>
+      <p class="message message--success">
+        ご注文を受け付けました。<br />
+        LINEにも確認メッセージをお送りしました。<br />
+        店舗からのご連絡をお待ちください。
+      </p>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>

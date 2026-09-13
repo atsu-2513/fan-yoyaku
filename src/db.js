@@ -135,6 +135,34 @@ async function initSchema() {
             status TEXT NOT NULL DEFAULT 'open',
             created_at TEXT NOT NULL
           )`,
+          `CREATE TABLE IF NOT EXISTS shop_tokens (
+            token TEXT PRIMARY KEY,
+            line_user_id TEXT NOT NULL,
+            used INTEGER NOT NULL DEFAULT 0,
+            created_at TEXT NOT NULL,
+            expires_at TEXT NOT NULL
+          )`,
+          `CREATE TABLE IF NOT EXISTS shop_products (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL,
+            price INTEGER,
+            description TEXT,
+            photo_data TEXT,
+            active INTEGER NOT NULL DEFAULT 1,
+            sort_order INTEGER NOT NULL DEFAULT 0,
+            created_at TEXT NOT NULL
+          )`,
+          `CREATE TABLE IF NOT EXISTS shop_orders (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            line_user_id TEXT,
+            staff_id INTEGER,
+            customer_name TEXT NOT NULL,
+            phone TEXT NOT NULL,
+            items_json TEXT NOT NULL,
+            total_price INTEGER,
+            status TEXT NOT NULL DEFAULT 'pending',
+            created_at TEXT NOT NULL
+          )`,
         ],
         'write'
       );
@@ -1012,6 +1040,140 @@ async function updateReservationDateTime(id, { date, time }) {
   return getReservation(id);
 }
 
+// ---------- 店販(お店で扱う商品の紹介・注文リクエスト) ----------
+
+async function createShopToken(lineUserId) {
+  await ready();
+  const token = crypto.randomUUID();
+  const now = new Date();
+  const expires = new Date(now.getTime() + TOKEN_TTL_MINUTES * 60 * 1000);
+  await client.execute({
+    sql: `INSERT INTO shop_tokens (token, line_user_id, used, created_at, expires_at)
+          VALUES (?, ?, 0, ?, ?)`,
+    args: [token, lineUserId, now.toISOString(), expires.toISOString()],
+  });
+  return token;
+}
+
+async function getValidShopToken(token) {
+  await ready();
+  const result = await client.execute({
+    sql: `SELECT * FROM shop_tokens WHERE token = ?`,
+    args: [token],
+  });
+  const row = result.rows[0];
+  if (!row) return null;
+  if (row.used) return null;
+  if (new Date(row.expires_at).getTime() < Date.now()) return null;
+  return row;
+}
+
+async function markShopTokenUsed(token) {
+  await ready();
+  await client.execute({
+    sql: `UPDATE shop_tokens SET used = 1 WHERE token = ?`,
+    args: [token],
+  });
+}
+
+async function listActiveShopProducts() {
+  await ready();
+  const result = await client.execute(
+    `SELECT id, name, price, description, photo_data, sort_order FROM shop_products WHERE active = 1 ORDER BY sort_order ASC, id ASC`
+  );
+  return result.rows;
+}
+
+async function listAllShopProductsAdmin() {
+  await ready();
+  const result = await client.execute(`SELECT * FROM shop_products ORDER BY sort_order ASC, id ASC`);
+  return result.rows;
+}
+
+async function getShopProductById(id) {
+  await ready();
+  const result = await client.execute({ sql: `SELECT * FROM shop_products WHERE id = ?`, args: [id] });
+  return result.rows[0] || null;
+}
+
+async function createShopProduct({ name, price, description, photoData }) {
+  await ready();
+  const maxSort = await client.execute(`SELECT COALESCE(MAX(sort_order), -1) AS m FROM shop_products`);
+  const sortOrder = Number(maxSort.rows[0].m) + 1;
+  const insert = await client.execute({
+    sql: `INSERT INTO shop_products (name, price, description, photo_data, active, sort_order, created_at)
+          VALUES (?, ?, ?, ?, 1, ?, ?)`,
+    args: [name, price, description || null, photoData || null, sortOrder, new Date().toISOString()],
+  });
+  return getShopProductById(Number(insert.lastInsertRowid));
+}
+
+async function updateShopProduct(id, { name, price, description, photoData, active, keepExistingPhoto }) {
+  await ready();
+  if (keepExistingPhoto) {
+    await client.execute({
+      sql: `UPDATE shop_products SET name = ?, price = ?, description = ?, active = ? WHERE id = ?`,
+      args: [name, price, description || null, active ? 1 : 0, id],
+    });
+  } else {
+    await client.execute({
+      sql: `UPDATE shop_products SET name = ?, price = ?, description = ?, photo_data = ?, active = ? WHERE id = ?`,
+      args: [name, price, description || null, photoData || null, active ? 1 : 0, id],
+    });
+  }
+  return getShopProductById(id);
+}
+
+async function deleteShopProduct(id) {
+  await ready();
+  await client.execute({ sql: `DELETE FROM shop_products WHERE id = ?`, args: [id] });
+}
+
+// この電話番号のお客様が、どのスタッフの顧客として登録されているか探す(店販注文の担当振り分け用)。
+// 複数のスタッフに同じ電話番号の顧客が登録されている場合は、最も最近更新されたものを優先する。
+async function findStaffIdForPhone(phone) {
+  await ready();
+  const result = await client.execute({
+    sql: `SELECT staff_id FROM customers WHERE phone = ? ORDER BY updated_at DESC LIMIT 1`,
+    args: [phone],
+  });
+  return result.rows[0] ? result.rows[0].staff_id : null;
+}
+
+async function createShopOrder({ lineUserId, staffId, customerName, phone, items, totalPrice }) {
+  await ready();
+  const insert = await client.execute({
+    sql: `INSERT INTO shop_orders (line_user_id, staff_id, customer_name, phone, items_json, total_price, status, created_at)
+          VALUES (?, ?, ?, ?, ?, ?, 'pending', ?)`,
+    args: [lineUserId || null, staffId || null, customerName, phone, JSON.stringify(items), totalPrice === undefined ? null : totalPrice, new Date().toISOString()],
+  });
+  const result = await client.execute({ sql: `SELECT * FROM shop_orders WHERE id = ?`, args: [Number(insert.lastInsertRowid)] });
+  const row = result.rows[0];
+  return { ...row, items };
+}
+
+async function listShopOrdersForStaff(staffId) {
+  await ready();
+  const result = await client.execute({
+    sql: `SELECT * FROM shop_orders WHERE staff_id = ? ORDER BY created_at DESC`,
+    args: [staffId],
+  });
+  return result.rows.map((r) => ({ ...r, items: JSON.parse(r.items_json) }));
+}
+
+async function listAllShopOrdersWithStaff() {
+  await ready();
+  const result = await client.execute(
+    `SELECT o.*, s.name AS staff_name FROM shop_orders o LEFT JOIN staff s ON s.id = o.staff_id ORDER BY o.created_at DESC`
+  );
+  return result.rows.map((r) => ({ ...r, items: JSON.parse(r.items_json) }));
+}
+
+async function markShopOrderStatus(id, status) {
+  await ready();
+  await client.execute({ sql: `UPDATE shop_orders SET status = ? WHERE id = ?`, args: [status, id] });
+}
+
 module.exports = {
   client,
   createBookingToken,
@@ -1079,4 +1241,18 @@ module.exports = {
   listConfirmedReservationsForDate,
   markReminderSent,
   copyOpenSlotsToDates,
+  createShopToken,
+  getValidShopToken,
+  markShopTokenUsed,
+  listActiveShopProducts,
+  listAllShopProductsAdmin,
+  getShopProductById,
+  createShopProduct,
+  updateShopProduct,
+  deleteShopProduct,
+  findStaffIdForPhone,
+  createShopOrder,
+  listShopOrdersForStaff,
+  listAllShopOrdersWithStaff,
+  markShopOrderStatus,
 };

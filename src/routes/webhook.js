@@ -3,6 +3,7 @@ const line = require('@line/bot-sdk');
 const { config, client } = require('../line');
 const {
   createBookingToken,
+  createShopToken,
   listUpcomingReservationsForUser,
   getReservation,
   cancelReservation,
@@ -65,10 +66,37 @@ async function handleEvent(event) {
     return;
   }
 
+  if (text === '店販') {
+    if (!userId) {
+      await client.replyMessage({
+        replyToken: event.replyToken,
+        messages: [{ type: 'text', text: 'ご案内できませんでした。時間をおいて再度お試しください。' }],
+      });
+      return;
+    }
+
+    const token = await createShopToken(userId);
+    const url = `${process.env.BASE_URL}/shop/?token=${token}`;
+
+    await client.replyMessage({
+      replyToken: event.replyToken,
+      messages: [
+        {
+          type: 'text',
+          text: `店販商品はこちらからどうぞ🛍\n${url}\n\n※このURLは30分間有効です。`,
+        },
+      ],
+    });
+    return;
+  }
+
   await client.replyMessage({
     replyToken: event.replyToken,
     messages: [
-      { type: 'text', text: 'ご予約は「予約」、ご予約のキャンセルは「キャンセル」と送信してください。' },
+      {
+        type: 'text',
+        text: 'ご予約は「予約」、ご予約のキャンセルは「キャンセル」、店販商品のご案内は「店販」と送信してください。',
+      },
     ],
   });
 }

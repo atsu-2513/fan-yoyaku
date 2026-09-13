@@ -183,6 +183,28 @@
       </table>
       <p id="customers-empty-message" class="empty-message" hidden>顧客情報はまだありません。</p>
     </section>
+
+    <section class="menu-section">
+      <h2>店販商品の管理</h2>
+      <p class="slot-hint">お客様がLINEの「店販」から見られる商品一覧です。写真は自動で縮小してから保存されます。</p>
+      <div id="shop-products-list"></div>
+      <p id="shop-products-empty" class="empty-message" hidden>商品はまだ登録されていません。</p>
+      <form id="shop-product-add-form" class="menu-add-form" style="flex-direction:column; align-items:flex-start; gap:8px;">
+        <input type="text" id="new-shop-product-name" placeholder="商品名" required style="width:100%;" />
+        <input type="number" id="new-shop-product-price" placeholder="価格（円・任意）" min="0" style="width:100%;" />
+        <textarea id="new-shop-product-description" placeholder="説明（任意）" rows="2" maxlength="1000" style="width:100%; font-family:inherit;"></textarea>
+        <input type="file" id="new-shop-product-photo" accept="image/*" />
+        <button type="submit" class="btn btn--ghost">商品を追加</button>
+      </form>
+      <p id="shop-product-message" class="empty-message" hidden></p>
+    </section>
+
+    <section class="menu-section">
+      <h2>店販注文</h2>
+      <p class="slot-hint">お客様から届いた店販商品の注文リクエストです。対応が終わったら「対応済みにする」を押してください。</p>
+      <div id="shop-orders-list"></div>
+      <p id="shop-orders-empty" class="empty-message" hidden>店販注文はまだありません。</p>
+    </section>
   </div>
 
   <script src="app.js"></script>

@@ -37,6 +37,13 @@ const {
   getWaitlistAlert,
   markWaitlistAlertStatus,
   updateReservationDateTime,
+  listAllShopProductsAdmin,
+  createShopProduct,
+  updateShopProduct,
+  deleteShopProduct,
+  getShopProductById,
+  listAllShopOrdersWithStaff,
+  markShopOrderStatus,
 } = require('../db');
 const {
   menuLabel,
@@ -525,6 +532,71 @@ router.post('/api/admin/reservations/:id/reschedule', async (req, res) => {
   }
 
   res.json({ ok: true, reservation });
+});
+
+// ---------- 店販(商品管理・注文リクエスト) ----------
+
+router.get('/api/admin/shop-products', async (req, res) => {
+  res.json({ ok: true, products: await listAllShopProductsAdmin() });
+});
+
+router.post('/api/admin/shop-products', async (req, res) => {
+  const { name, price, description, photoData } = req.body || {};
+  const trimmedName = typeof name === 'string' ? name.trim() : '';
+  if (!trimmedName) return res.status(400).json({ ok: false, error: 'name_required' });
+  const priceNum = price === '' || price === null || price === undefined ? null : Number(price);
+  if (priceNum !== null && (!Number.isFinite(priceNum) || priceNum < 0)) {
+    return res.status(400).json({ ok: false, error: 'invalid_price' });
+  }
+  const product = await createShopProduct({
+    name: trimmedName,
+    price: priceNum,
+    description: typeof description === 'string' ? description.trim().slice(0, 1000) : '',
+    photoData: typeof photoData === 'string' ? photoData : null,
+  });
+  res.json({ ok: true, product });
+});
+
+router.put('/api/admin/shop-products/:id', async (req, res) => {
+  const id = Number(req.params.id);
+  const existing = await getShopProductById(id);
+  if (!existing) return res.status(404).json({ ok: false, error: 'not_found' });
+  const { name, price, description, photoData, active } = req.body || {};
+  const trimmedName = typeof name === 'string' ? name.trim() : '';
+  if (!trimmedName) return res.status(400).json({ ok: false, error: 'name_required' });
+  const priceNum = price === '' || price === null || price === undefined ? null : Number(price);
+  if (priceNum !== null && (!Number.isFinite(priceNum) || priceNum < 0)) {
+    return res.status(400).json({ ok: false, error: 'invalid_price' });
+  }
+  // 写真を新しく送ってきた時だけ差し替える(未指定なら既存の写真をそのまま残す)
+  const keepExistingPhoto = typeof photoData !== 'string';
+  const product = await updateShopProduct(id, {
+    name: trimmedName,
+    price: priceNum,
+    description: typeof description === 'string' ? description.trim().slice(0, 1000) : '',
+    photoData: keepExistingPhoto ? undefined : photoData,
+    active: active !== false,
+    keepExistingPhoto,
+  });
+  res.json({ ok: true, product });
+});
+
+router.delete('/api/admin/shop-products/:id', async (req, res) => {
+  const id = Number(req.params.id);
+  const existing = await getShopProductById(id);
+  if (!existing) return res.status(404).json({ ok: false, error: 'not_found' });
+  await deleteShopProduct(id);
+  res.json({ ok: true });
+});
+
+router.get('/api/admin/shop-orders', async (req, res) => {
+  res.json({ ok: true, orders: await listAllShopOrdersWithStaff() });
+});
+
+router.post('/api/admin/shop-orders/:id/complete', async (req, res) => {
+  const id = Number(req.params.id);
+  await markShopOrderStatus(id, 'done');
+  res.json({ ok: true });
 });
 
 module.exports = router;

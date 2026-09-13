@@ -28,6 +28,8 @@ const {
   listOpenWaitlistAlertsForStaff,
   markWaitlistAlertStatus,
   updateReservationDateTime,
+  listShopOrdersForStaff,
+  markShopOrderStatus,
 } = require('../db');
 const { isBusinessDay, slotsForDate, getSlotTimes, menuLabel } = require('../businessHours');
 const { computeAvailableStartTimes, expandRange } = require('../availability');
@@ -461,6 +463,22 @@ router.post('/staff/api/reservations/:id/reschedule', requireStaffAuth, async (r
   }
 
   res.json({ ok: true, reservation });
+});
+
+// ---------- 店販注文(自分が担当と特定された注文のみ表示) ----------
+
+router.get('/staff/api/shop-orders', requireStaffAuth, async (req, res) => {
+  const orders = await listShopOrdersForStaff(req.staff.id);
+  res.json({ ok: true, orders });
+});
+
+router.post('/staff/api/shop-orders/:id/complete', requireStaffAuth, async (req, res) => {
+  const id = Number(req.params.id);
+  const orders = await listShopOrdersForStaff(req.staff.id);
+  const existing = orders.find((o) => Number(o.id) === id);
+  if (!existing) return res.status(404).json({ ok: false, error: 'not_found' });
+  await markShopOrderStatus(id, 'done');
+  res.json({ ok: true });
 });
 
 module.exports = router;

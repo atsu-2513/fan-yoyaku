@@ -34,6 +34,7 @@
       loadCustomers();
       loadCandidateRequests();
       loadWaitlistAlerts();
+      loadShopOrders();
     } catch (err) {
       window.location.href = '/staff/login.html';
     }
@@ -1021,6 +1022,74 @@
       messageEl.textContent = '通信エラーが発生しました。';
     }
   });
+
+  // ---------- 店販注文(自分が担当と特定されたものだけ表示) ----------
+  async function loadShopOrders() {
+    const wrap = document.getElementById('shop-orders-list');
+    const empty = document.getElementById('shop-orders-empty');
+    wrap.innerHTML = '';
+    try {
+      const res = await fetch('/staff/api/shop-orders');
+      const data = await res.json();
+      const orders = data.orders || [];
+      empty.hidden = orders.length > 0;
+      orders.forEach((o) => wrap.appendChild(renderShopOrderCard(o)));
+    } catch (err) {
+      empty.hidden = false;
+      empty.textContent = '読み込みに失敗しました。';
+    }
+  }
+
+  function renderShopOrderCard(o) {
+    const card = document.createElement('div');
+    card.className = 'card';
+    card.style.marginBottom = '10px';
+
+    const title = document.createElement('div');
+    title.innerHTML = `<strong>${o.customer_name}様</strong>（${o.phone}）${o.status === 'done' ? '（対応済み）' : ''}`;
+    card.appendChild(title);
+
+    const items = document.createElement('div');
+    items.style.marginTop = '6px';
+    items.style.fontSize = '13px';
+    items.innerHTML = (o.items || []).map((it) => `${it.name} × ${it.quantity}`).join('<br />');
+    card.appendChild(items);
+
+    if (o.total_price) {
+      const total = document.createElement('div');
+      total.style.marginTop = '4px';
+      total.style.fontSize = '13px';
+      total.textContent = `合計: ${Number(o.total_price).toLocaleString()}円`;
+      card.appendChild(total);
+    }
+
+    if (o.status !== 'done') {
+      const completeBtn = document.createElement('button');
+      completeBtn.type = 'button';
+      completeBtn.className = 'btn btn--ghost';
+      completeBtn.textContent = '対応済みにする';
+      completeBtn.style.marginTop = '8px';
+      completeBtn.addEventListener('click', async () => {
+        completeBtn.disabled = true;
+        try {
+          const res = await fetch(`/staff/api/shop-orders/${o.id}/complete`, { method: 'POST' });
+          const data = await res.json();
+          if (!res.ok || !data.ok) {
+            alert('処理に失敗しました。');
+            completeBtn.disabled = false;
+            return;
+          }
+          loadShopOrders();
+        } catch (err) {
+          alert('通信エラーが発生しました。');
+          completeBtn.disabled = false;
+        }
+      });
+      card.appendChild(completeBtn);
+    }
+
+    return card;
+  }
 
   init();
 })();

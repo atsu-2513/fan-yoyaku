@@ -1256,6 +1256,312 @@
     });
   }
 
+  // ---------- 店販(商品管理) ----------
+  function resizeImageFile(file, maxSize) {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onerror = () => reject(new Error('read_failed'));
+      reader.onload = () => {
+        const img = new Image();
+        img.onerror = () => reject(new Error('image_load_failed'));
+        img.onload = () => {
+          const scale = Math.min(1, maxSize / Math.max(img.width, img.height));
+          const w = Math.max(1, Math.round(img.width * scale));
+          const h = Math.max(1, Math.round(img.height * scale));
+          const canvas = document.createElement('canvas');
+          canvas.width = w;
+          canvas.height = h;
+          const ctx = canvas.getContext('2d');
+          ctx.drawImage(img, 0, 0, w, h);
+          resolve(canvas.toDataURL('image/jpeg', 0.72));
+        };
+        img.src = reader.result;
+      };
+      reader.readAsDataURL(file);
+    });
+  }
+
+  function initShopProducts() {
+    const listWrap = document.getElementById('shop-products-list');
+    const empty = document.getElementById('shop-products-empty');
+    const message = document.getElementById('shop-product-message');
+
+    async function loadShopProducts() {
+      listWrap.innerHTML = '';
+      try {
+        const res = await fetch('/api/admin/shop-products');
+        const data = await res.json();
+        const products = data.products || [];
+        empty.hidden = products.length > 0;
+        products.forEach((p) => listWrap.appendChild(renderProductCard(p)));
+      } catch (err) {
+        empty.hidden = false;
+        empty.textContent = '読み込みに失敗しました。';
+      }
+    }
+
+    function renderProductCard(p) {
+      const card = document.createElement('div');
+      card.className = 'card';
+      card.style.marginBottom = '10px';
+      card.style.display = 'flex';
+      card.style.gap = '12px';
+
+      if (p.photo_data) {
+        const img = document.createElement('img');
+        img.src = p.photo_data;
+        img.style.width = '64px';
+        img.style.height = '64px';
+        img.style.objectFit = 'cover';
+        img.style.borderRadius = '8px';
+        img.style.flexShrink = '0';
+        card.appendChild(img);
+      }
+
+      const body = document.createElement('div');
+      body.style.flex = '1';
+      body.style.minWidth = '0';
+
+      const nameInput = document.createElement('input');
+      nameInput.type = 'text';
+      nameInput.value = p.name;
+      nameInput.style.width = '100%';
+      nameInput.style.marginBottom = '6px';
+
+      const priceInput = document.createElement('input');
+      priceInput.type = 'number';
+      priceInput.min = '0';
+      priceInput.placeholder = '価格（円・任意）';
+      priceInput.value = p.price === null || p.price === undefined ? '' : p.price;
+      priceInput.style.width = '100%';
+      priceInput.style.marginBottom = '6px';
+
+      const descInput = document.createElement('textarea');
+      descInput.rows = 2;
+      descInput.maxLength = 1000;
+      descInput.placeholder = '説明（任意）';
+      descInput.value = p.description || '';
+      descInput.style.width = '100%';
+      descInput.style.fontFamily = 'inherit';
+      descInput.style.marginBottom = '6px';
+
+      const photoInput = document.createElement('input');
+      photoInput.type = 'file';
+      photoInput.accept = 'image/*';
+      photoInput.style.marginBottom = '6px';
+      let pendingPhotoData = null;
+      photoInput.addEventListener('change', async () => {
+        if (!photoInput.files || !photoInput.files[0]) return;
+        pendingPhotoData = await resizeImageFile(photoInput.files[0], 640);
+      });
+
+      const activeLabel = document.createElement('label');
+      activeLabel.style.display = 'inline-flex';
+      activeLabel.style.alignItems = 'center';
+      activeLabel.style.gap = '6px';
+      activeLabel.style.marginRight = '10px';
+      const activeCheckbox = document.createElement('input');
+      activeCheckbox.type = 'checkbox';
+      activeCheckbox.checked = Number(p.active) !== 0;
+      activeLabel.appendChild(activeCheckbox);
+      activeLabel.appendChild(document.createTextNode('公開する'));
+
+      const saveBtn = document.createElement('button');
+      saveBtn.type = 'button';
+      saveBtn.className = 'btn btn--ghost';
+      saveBtn.textContent = '保存';
+      saveBtn.addEventListener('click', async () => {
+        saveBtn.disabled = true;
+        try {
+          const body = {
+            name: nameInput.value.trim(),
+            price: priceInput.value === '' ? null : Number(priceInput.value),
+            description: descInput.value.trim(),
+            active: activeCheckbox.checked,
+          };
+          if (pendingPhotoData) body.photoData = pendingPhotoData;
+          const res = await fetch(`/api/admin/shop-products/${p.id}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body),
+          });
+          const data = await res.json();
+          if (!res.ok || !data.ok) {
+            alert('保存に失敗しました。');
+            return;
+          }
+          loadShopProducts();
+        } catch (err) {
+          alert('通信エラーが発生しました。');
+        } finally {
+          saveBtn.disabled = false;
+        }
+      });
+
+      const deleteBtn = document.createElement('button');
+      deleteBtn.type = 'button';
+      deleteBtn.className = 'btn btn--ghost';
+      deleteBtn.textContent = '削除';
+      deleteBtn.style.marginLeft = '8px';
+      deleteBtn.addEventListener('click', async () => {
+        if (!window.confirm(`「${p.name}」を削除しますか？`)) return;
+        deleteBtn.disabled = true;
+        try {
+          const res = await fetch(`/api/admin/shop-products/${p.id}`, { method: 'DELETE' });
+          const data = await res.json();
+          if (!res.ok || !data.ok) {
+            alert('削除に失敗しました。');
+            deleteBtn.disabled = false;
+            return;
+          }
+          loadShopProducts();
+        } catch (err) {
+          alert('通信エラーが発生しました。');
+          deleteBtn.disabled = false;
+        }
+      });
+
+      const btnRow = document.createElement('div');
+      btnRow.style.marginTop = '4px';
+      btnRow.appendChild(activeLabel);
+      btnRow.appendChild(saveBtn);
+      btnRow.appendChild(deleteBtn);
+
+      body.appendChild(nameInput);
+      body.appendChild(priceInput);
+      body.appendChild(descInput);
+      body.appendChild(photoInput);
+      body.appendChild(btnRow);
+      card.appendChild(body);
+      return card;
+    }
+
+    document.getElementById('shop-product-add-form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const nameInput = document.getElementById('new-shop-product-name');
+      const priceInput = document.getElementById('new-shop-product-price');
+      const descInput = document.getElementById('new-shop-product-description');
+      const photoInput = document.getElementById('new-shop-product-photo');
+      const name = nameInput.value.trim();
+      if (!name) return;
+
+      let photoData = null;
+      if (photoInput.files && photoInput.files[0]) {
+        try {
+          photoData = await resizeImageFile(photoInput.files[0], 640);
+        } catch (err) {
+          message.hidden = false;
+          message.textContent = '画像の読み込みに失敗しました。写真なしで追加するか、別の画像をお試しください。';
+          return;
+        }
+      }
+
+      try {
+        const res = await fetch('/api/admin/shop-products', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            name,
+            price: priceInput.value === '' ? null : Number(priceInput.value),
+            description: descInput.value.trim(),
+            photoData,
+          }),
+        });
+        const data = await res.json();
+        message.hidden = false;
+        if (!res.ok || !data.ok) {
+          message.textContent = '追加に失敗しました。';
+          return;
+        }
+        message.textContent = '商品を追加しました。';
+        nameInput.value = '';
+        priceInput.value = '';
+        descInput.value = '';
+        photoInput.value = '';
+        loadShopProducts();
+      } catch (err) {
+        message.hidden = false;
+        message.textContent = '通信エラーが発生しました。';
+      }
+    });
+
+    loadShopProducts();
+  }
+
+  // ---------- 店販注文 ----------
+  async function loadShopOrders() {
+    const wrap = document.getElementById('shop-orders-list');
+    const empty = document.getElementById('shop-orders-empty');
+    wrap.innerHTML = '';
+    try {
+      const res = await fetch('/api/admin/shop-orders');
+      const data = await res.json();
+      const orders = data.orders || [];
+      empty.hidden = orders.length > 0;
+      orders.forEach((o) => wrap.appendChild(renderShopOrderCard(o)));
+    } catch (err) {
+      empty.hidden = false;
+      empty.textContent = '読み込みに失敗しました。';
+    }
+  }
+
+  function renderShopOrderCard(o) {
+    const card = document.createElement('div');
+    card.className = 'card';
+    card.style.marginBottom = '10px';
+
+    const title = document.createElement('div');
+    const badge = document.createElement('span');
+    badge.className = `badge badge--${o.status === 'done' ? 'confirmed' : 'pending'}`;
+    badge.textContent = o.status === 'done' ? '対応済み' : '未対応';
+    title.appendChild(badge);
+    title.appendChild(
+      document.createTextNode(` ${o.customer_name}様（${o.phone}） / 担当: ${o.staff_name || '(未特定)'}`)
+    );
+    card.appendChild(title);
+
+    const items = document.createElement('div');
+    items.style.marginTop = '6px';
+    items.style.fontSize = '13px';
+    items.innerHTML = (o.items || []).map((it) => `${it.name} × ${it.quantity}`).join('<br />');
+    card.appendChild(items);
+
+    if (o.total_price) {
+      const total = document.createElement('div');
+      total.style.marginTop = '4px';
+      total.style.fontSize = '13px';
+      total.textContent = `合計: ${Number(o.total_price).toLocaleString()}円`;
+      card.appendChild(total);
+    }
+
+    if (o.status !== 'done') {
+      const completeBtn = document.createElement('button');
+      completeBtn.type = 'button';
+      completeBtn.className = 'btn btn--ghost';
+      completeBtn.textContent = '対応済みにする';
+      completeBtn.style.marginTop = '8px';
+      completeBtn.addEventListener('click', async () => {
+        completeBtn.disabled = true;
+        try {
+          const res = await fetch(`/api/admin/shop-orders/${o.id}/complete`, { method: 'POST' });
+          const data = await res.json();
+          if (!res.ok || !data.ok) {
+            alert('処理に失敗しました。');
+            completeBtn.disabled = false;
+            return;
+          }
+          loadShopOrders();
+        } catch (err) {
+          alert('通信エラーが発生しました。');
+          completeBtn.disabled = false;
+        }
+      });
+      card.appendChild(completeBtn);
+    }
+
+    return card;
+  }
+
   load();
   initStaffSlots();
   initSettings();
@@ -1266,4 +1572,6 @@
   initQuiz();
   loadCandidateRequests();
   loadWaitlistAlerts();
+  initShopProducts();
+  loadShopOrders();
 })();

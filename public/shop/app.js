@@ -11,7 +11,9 @@
     token,
     products: [],
     categories: [],
+    staff: [],
     activeCategoryId: '', // '' = すべて
+    activeStaffId: '', // '' = すべて
     quantities: {}, // { productId: qty }
   };
 
@@ -33,7 +35,9 @@
       }
       state.products = data.products || [];
       state.categories = data.categories || [];
+      state.staff = data.staff || [];
       renderCategoryFilters();
+      renderStaffFilters();
       renderProductList();
       showScreen(listScreen);
     } catch (err) {
@@ -79,13 +83,52 @@
     });
   }
 
+  function renderStaffFilters() {
+    const wrap = document.getElementById('staff-filters');
+    wrap.innerHTML = '';
+    if (!state.staff.length) {
+      wrap.hidden = true;
+      return;
+    }
+    wrap.hidden = false;
+
+    const allBtn = document.createElement('button');
+    allBtn.type = 'button';
+    allBtn.className = 'category-pill' + (state.activeStaffId === '' ? ' category-pill--active' : '');
+    allBtn.textContent = 'スタッフ：すべて';
+    allBtn.addEventListener('click', () => {
+      state.activeStaffId = '';
+      renderStaffFilters();
+      renderProductList();
+    });
+    wrap.appendChild(allBtn);
+
+    state.staff.forEach((s) => {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'category-pill' + (String(state.activeStaffId) === String(s.id) ? ' category-pill--active' : '');
+      btn.textContent = `${s.name}のおすすめ`;
+      btn.addEventListener('click', () => {
+        state.activeStaffId = s.id;
+        renderStaffFilters();
+        renderProductList();
+      });
+      wrap.appendChild(btn);
+    });
+  }
+
   function renderProductList() {
     const wrap = document.getElementById('product-list');
     const empty = document.getElementById('product-empty');
     wrap.innerHTML = '';
-    const visibleProducts = state.activeCategoryId
+    let visibleProducts = state.activeCategoryId
       ? state.products.filter((p) => String(p.category_id) === String(state.activeCategoryId))
       : state.products;
+    if (state.activeStaffId) {
+      visibleProducts = visibleProducts.filter(
+        (p) => Array.isArray(p.recommendedBy) && p.recommendedBy.some((s) => String(s.id) === String(state.activeStaffId))
+      );
+    }
     empty.hidden = visibleProducts.length > 0;
 
     visibleProducts.forEach((p) => {

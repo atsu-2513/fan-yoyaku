@@ -4,6 +4,7 @@ const {
   markShopTokenUsed,
   listActiveShopProducts,
   listShopCategories,
+  listActiveStaff,
   findStaffIdForPhone,
   createShopOrder,
   getStaffById,
@@ -17,8 +18,12 @@ const router = express.Router();
 router.get('/api/shop/token/:token', async (req, res) => {
   const row = await getValidShopToken(req.params.token);
   if (!row) return res.status(400).json({ ok: false, error: 'invalid_or_expired_token' });
-  const [products, categories] = await Promise.all([listActiveShopProducts(), listShopCategories()]);
-  res.json({ ok: true, products, categories });
+  const [products, categories, staff] = await Promise.all([
+    listActiveShopProducts(),
+    listShopCategories(),
+    listActiveStaff(),
+  ]);
+  res.json({ ok: true, products, categories, staff });
 });
 
 // 注文リクエストの送信

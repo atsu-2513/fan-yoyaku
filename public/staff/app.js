@@ -93,6 +93,122 @@
     renderCalendar();
   });
 
+  // ---------- 週間グリッド表示(自分の1週間分の空き状況を一覧で見る) ----------
+  let staffWeekStart = null;
+
+  function mondayOfLocal(dateStr) {
+    const d = new Date(`${dateStr}T00:00:00`);
+    const day = d.getDay();
+    const diff = day === 0 ? -6 : 1 - day;
+    d.setDate(d.getDate() + diff);
+    return toDateStr(d.getFullYear(), d.getMonth(), d.getDate());
+  }
+  function addDaysLocal(dateStr, n) {
+    const d = new Date(`${dateStr}T00:00:00`);
+    d.setDate(d.getDate() + n);
+    return toDateStr(d.getFullYear(), d.getMonth(), d.getDate());
+  }
+
+  document.getElementById('staff-view-toggle-calendar').addEventListener('click', () => {
+    document.getElementById('staff-view-toggle-calendar').classList.add('is-active');
+    document.getElementById('staff-view-toggle-week').classList.remove('is-active');
+    document.getElementById('staff-calendar-view').hidden = false;
+    document.getElementById('staff-week-view').hidden = true;
+  });
+  document.getElementById('staff-view-toggle-week').addEventListener('click', () => {
+    document.getElementById('staff-view-toggle-week').classList.add('is-active');
+    document.getElementById('staff-view-toggle-calendar').classList.remove('is-active');
+    document.getElementById('staff-week-view').hidden = false;
+    document.getElementById('staff-calendar-view').hidden = true;
+    if (!staffWeekStart) staffWeekStart = mondayOfLocal(todayStr());
+    loadStaffWeek();
+  });
+  document.getElementById('staff-prev-week').addEventListener('click', () => {
+    staffWeekStart = addDaysLocal(staffWeekStart || mondayOfLocal(todayStr()), -7);
+    loadStaffWeek();
+  });
+  document.getElementById('staff-next-week').addEventListener('click', () => {
+    staffWeekStart = addDaysLocal(staffWeekStart || mondayOfLocal(todayStr()), 7);
+    loadStaffWeek();
+  });
+
+  const WEEKDAY_LABELS_JA = ['日', '月', '火', '水', '木', '金', '土'];
+
+  async function loadStaffWeek() {
+    const table = document.getElementById('staff-week-table');
+    const label = document.getElementById('staff-week-label');
+    if (!staffWeekStart) staffWeekStart = mondayOfLocal(todayStr());
+    label.textContent = `${staffWeekStart} 〜`;
+    table.innerHTML = '<tr><td class="week-grid__loading">読み込み中...</td></tr>';
+    try {
+      const res = await fetch(`/staff/api/slots-week?date=${encodeURIComponent(staffWeekStart)}`);
+      const data = await res.json();
+      if (!res.ok || !data.ok) {
+        table.innerHTML = '<tr><td class="week-grid__loading">読み込みに失敗しました。</td></tr>';
+        return;
+      }
+      renderStaffWeekGrid(data);
+    } catch (err) {
+      table.innerHTML = '<tr><td class="week-grid__loading">読み込みに失敗しました。</td></tr>';
+    }
+  }
+
+  function renderStaffWeekGrid(data) {
+    const table = document.getElementById('staff-week-table');
+    if (data.weekStart) {
+      staffWeekStart = data.weekStart;
+      document.getElementById('staff-week-label').textContent = `${data.weekStart} 〜`;
+    }
+    table.innerHTML = '';
+    if (!data.slotTimes || data.slotTimes.length === 0) {
+      table.innerHTML = '<tr><td class="week-grid__loading">この週は表示できる時間帯がありません。</td></tr>';
+      return;
+    }
+    const today = todayStr();
+
+    const thead = document.createElement('thead');
+    const headRow = document.createElement('tr');
+    headRow.appendChild(document.createElement('th'));
+    data.days.forEach((day) => {
+      const th = document.createElement('th');
+      const d = new Date(`${day.date}T00:00:00`);
+      th.innerHTML = `${d.getMonth() + 1}/${d.getDate()}<br>${WEEKDAY_LABELS_JA[d.getDay()]}`;
+      if (day.date === today) th.classList.add('week-grid__today');
+      headRow.appendChild(th);
+    });
+    thead.appendChild(headRow);
+    table.appendChild(thead);
+
+    const tbody = document.createElement('tbody');
+    data.slotTimes.forEach((time) => {
+      const tr = document.createElement('tr');
+      const timeTh = document.createElement('th');
+      timeTh.scope = 'row';
+      timeTh.textContent = time;
+      tr.appendChild(timeTh);
+
+      data.days.forEach((day) => {
+        const td = document.createElement('td');
+        if (!day.businessDay) {
+          td.className = 'week-grid__cell--closed';
+          td.textContent = '×';
+        } else if ((day.takenSlots || []).includes(time)) {
+          td.className = 'week-grid__cell--taken';
+          td.textContent = '●';
+        } else if ((day.openSlots || []).includes(time)) {
+          td.className = 'week-grid__cell--open';
+          td.textContent = '○';
+        } else {
+          td.className = 'week-grid__cell--unopened';
+          td.textContent = '−';
+        }
+        tr.appendChild(td);
+      });
+      tbody.appendChild(tr);
+    });
+    table.appendChild(tbody);
+  }
+
   async function selectDate(dateStr) {
     state.selectedDate = dateStr;
     exitCopyMode();

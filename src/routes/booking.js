@@ -15,7 +15,7 @@ const {
   listMenusForStaff,
 } = require('../db');
 const { isBusinessDay, slotsForDate, menuLabel, todayJST } = require('../businessHours');
-const { computeAvailableStartTimes } = require('../availability');
+const { computeAvailableStartTimes, mondayOf, addDays } = require('../availability');
 const { pushText } = require('../line');
 const { sendMail } = require('../mail');
 
@@ -141,6 +141,48 @@ router.get('/api/booking/availability-month', async (req, res) => {
     days[dateStr] = available.length > 0 ? 'available' : 'none';
   }
   res.json({ ok: true, year: y, month: mo, days });
+});
+
+// 週間グリッド表示用: 指定日を含む週(月曜始まり)7日ぶんの、時間帯ごとの空き状況をまとめて返す
+router.get('/api/booking/availability-week', async (req, res) => {
+  const { token, staffId, menu, date } = req.query;
+  const row = await getValidToken(token);
+  if (!row) return res.status(400).json({ ok: false, error: 'invalid_or_expired_token' });
+  if (!date) return res.status(400).json({ ok: false, error: 'date_required' });
+  const staffIdNum = Number(staffId);
+  if (!staffIdNum) return res.status(400).json({ ok: false, error: 'staff_required' });
+  const staff = await getStaffById(staffIdNum);
+  if (!staff || !staff.active) return res.status(400).json({ ok: false, error: 'invalid_staff' });
+
+  const staffMenus = await listMenusForStaff(staffIdNum);
+  const selectedMenu = staffMenus.find((m) => m.id === menu);
+  if (!selectedMenu) return res.status(400).json({ ok: false, error: 'invalid_menu' });
+
+  const weekStart = mondayOf(date);
+  const weekDates = Array.from({ length: 7 }, (_, i) => addDays(weekStart, i));
+  const rangeEnd = weekDates[6];
+
+  const openByDate = await getOpenSlotsForStaffRange(staffIdNum, weekStart, rangeEnd);
+  const takenByDate = await getTakenSlotsForRange(staffIdNum, weekStart, rangeEnd);
+
+  const slotTimesSet = new Set();
+  const days = [];
+  for (const d of weekDates) {
+    const businessDay = await isBusinessDay(d);
+    const candidateSlots = businessDay ? await slotsForDate(d) : [];
+    candidateSlots.forEach((t) => slotTimesSet.add(t));
+    const available = businessDay
+      ? computeAvailableStartTimes({
+          candidateSlots,
+          openSlots: openByDate[d] || [],
+          takenSlots: takenByDate[d] || [],
+          durationMinutes: selectedMenu.durationMinutes,
+        })
+      : [];
+    days.push({ date: d, businessDay, available });
+  }
+  const slotTimes = Array.from(slotTimesSet).sort();
+  res.json({ ok: true, weekStart, slotTimes, days });
 });
 
 // 予約作成

@@ -21,6 +21,9 @@
     quizIndex: 0,
     mode: 'single', // 'single' | 'candidates'(候補日を複数出して相談するモード)
     candidateList: [], // [{date, time}, ...] 第1〜第3希望まで(順番=希望順)
+    viewMode: 'calendar', // 'calendar' | 'week'(週間グリッド表示)
+    weekStart: null, // 週間表示中の週の月曜日('YYYY-MM-DD')
+    weekAvailability: null, // { weekStart, slotTimes, days } 直近取得ぶん
   };
 
   function showScreen(el) {
@@ -36,6 +39,18 @@
   function todayStr() {
     const t = new Date();
     return toDateStr(t.getFullYear(), t.getMonth(), t.getDate());
+  }
+  function mondayOfLocal(dateStr) {
+    const d = new Date(`${dateStr}T00:00:00`);
+    const day = d.getDay();
+    const diff = day === 0 ? -6 : 1 - day;
+    d.setDate(d.getDate() + diff);
+    return toDateStr(d.getFullYear(), d.getMonth(), d.getDate());
+  }
+  function addDaysLocal(dateStr, n) {
+    const d = new Date(`${dateStr}T00:00:00`);
+    d.setDate(d.getDate() + n);
+    return toDateStr(d.getFullYear(), d.getMonth(), d.getDate());
   }
 
   async function init() {
@@ -84,6 +99,7 @@
         document.getElementById('menu-options').hidden = false;
         state.monthAvailability = {};
         renderCalendar();
+        resetWeekView();
         await loadMenusForStaff(staff.id);
         await loadQuizForStaff(staff.id);
         goToStep(2);
@@ -163,6 +179,135 @@
       state.monthAvailability = {};
     }
     renderCalendar();
+  }
+
+  // ---------- 表示切り替え(カレンダー表示 / 週間グリッド表示) ----------
+  function setViewMode(mode) {
+    state.viewMode = mode;
+    document.getElementById('view-toggle-calendar').classList.toggle('is-active', mode === 'calendar');
+    document.getElementById('view-toggle-week').classList.toggle('is-active', mode === 'week');
+    document.getElementById('calendar-view').hidden = mode !== 'calendar';
+    document.getElementById('week-view').hidden = mode !== 'week';
+    if (mode === 'week') {
+      if (!state.weekStart) state.weekStart = mondayOfLocal(todayStr());
+      loadWeekAvailability();
+    }
+  }
+
+  document.getElementById('view-toggle-calendar').addEventListener('click', () => setViewMode('calendar'));
+  document.getElementById('view-toggle-week').addEventListener('click', () => setViewMode('week'));
+
+  document.getElementById('prev-week').addEventListener('click', () => {
+    state.weekStart = addDaysLocal(state.weekStart || mondayOfLocal(todayStr()), -7);
+    loadWeekAvailability();
+  });
+  document.getElementById('next-week').addEventListener('click', () => {
+    state.weekStart = addDaysLocal(state.weekStart || mondayOfLocal(todayStr()), 7);
+    loadWeekAvailability();
+  });
+
+  // 指名スタッフ・メニューが決まったら選び直せるよう、週の位置を今週に戻す(表示自体はどちらのビューでも呼び出し側で更新する)
+  function resetWeekView() {
+    state.weekStart = mondayOfLocal(todayStr());
+    state.weekAvailability = null;
+  }
+
+  async function loadWeekAvailability() {
+    const table = document.getElementById('week-grid-table');
+    const label = document.getElementById('week-label');
+    if (!state.selectedStaff || !state.selectedMenu || !state.weekStart) {
+      table.innerHTML = '';
+      return;
+    }
+    label.textContent = `${state.weekStart} 〜`;
+    table.innerHTML = '<tr><td class="week-grid__loading">読み込み中...</td></tr>';
+    try {
+      const res = await fetch(
+        `/api/booking/availability-week?token=${encodeURIComponent(state.token)}&staffId=${encodeURIComponent(
+          state.selectedStaff.id
+        )}&menu=${encodeURIComponent(state.selectedMenu.id)}&date=${encodeURIComponent(state.weekStart)}`
+      );
+      const data = await res.json();
+      if (!res.ok || !data.ok) {
+        table.innerHTML = '<tr><td class="week-grid__loading">読み込みに失敗しました。</td></tr>';
+        return;
+      }
+      state.weekAvailability = data;
+      renderWeekGrid();
+    } catch (err) {
+      table.innerHTML = '<tr><td class="week-grid__loading">読み込みに失敗しました。</td></tr>';
+    }
+  }
+
+  const WEEKDAY_LABELS = ['日', '月', '火', '水', '木', '金', '土'];
+
+  function renderWeekGrid() {
+    const table = document.getElementById('week-grid-table');
+    const data = state.weekAvailability;
+    if (data && data.weekStart) {
+      state.weekStart = data.weekStart;
+      document.getElementById('week-label').textContent = `${data.weekStart} 〜`;
+    }
+    table.innerHTML = '';
+    if (!data || !data.slotTimes || data.slotTimes.length === 0) {
+      table.innerHTML = '<tr><td class="week-grid__loading">この週は表示できる時間帯がありません。</td></tr>';
+      return;
+    }
+    const today = todayStr();
+
+    const thead = document.createElement('thead');
+    const headRow = document.createElement('tr');
+    headRow.appendChild(document.createElement('th'));
+    data.days.forEach((day) => {
+      const th = document.createElement('th');
+      const d = new Date(`${day.date}T00:00:00`);
+      const wd = WEEKDAY_LABELS[d.getDay()];
+      th.innerHTML = `${d.getMonth() + 1}/${d.getDate()}<br>${wd}`;
+      if (day.date === today) th.classList.add('week-grid__today');
+      headRow.appendChild(th);
+    });
+    thead.appendChild(headRow);
+    table.appendChild(thead);
+
+    const tbody = document.createElement('tbody');
+    data.slotTimes.forEach((time) => {
+      const tr = document.createElement('tr');
+      const timeTh = document.createElement('th');
+      timeTh.scope = 'row';
+      timeTh.textContent = time;
+      tr.appendChild(timeTh);
+
+      data.days.forEach((day) => {
+        const td = document.createElement('td');
+        const isPast = day.date < today;
+        const isAvailable = !isPast && day.businessDay && day.available.includes(time);
+        if (isAvailable) {
+          const btn = document.createElement('button');
+          btn.type = 'button';
+          btn.className = 'week-grid__cell week-grid__cell--available';
+          btn.textContent = '◎';
+          btn.addEventListener('click', () => chooseDateTime(day.date, time));
+          td.appendChild(btn);
+        } else {
+          td.className = 'week-grid__cell week-grid__cell--unavailable';
+          td.textContent = '×';
+        }
+        tr.appendChild(td);
+      });
+      tbody.appendChild(tr);
+    });
+    table.appendChild(tbody);
+  }
+
+  // カレンダー表示・週間グリッド表示のどちらからでも、日時が選ばれたときの共通処理
+  function chooseDateTime(dateStr, time) {
+    if (state.mode === 'candidates') {
+      addCandidateDate(dateStr, time);
+      return;
+    }
+    state.selectedDate = dateStr;
+    state.selectedTime = time;
+    goToStep(4);
   }
 
   async function selectDate(dateStr) {
@@ -429,7 +574,9 @@
       document.getElementById('time-section').hidden = true;
       exitQuiz();
       resetCandidateMode();
+      resetWeekView();
       loadMonthAvailability();
+      if (state.viewMode === 'week') loadWeekAvailability();
       goToStep(3);
     });
     resultView.append(heading, card, chooseBtn);
@@ -461,7 +608,9 @@
         el.classList.add('is-selected');
         document.getElementById('time-section').hidden = true;
         resetCandidateMode();
+        resetWeekView();
         loadMonthAvailability();
+        if (state.viewMode === 'week') loadWeekAvailability();
         goToStep(3);
       });
       wrap.appendChild(el);

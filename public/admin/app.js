@@ -267,6 +267,28 @@
   document.getElementById('refresh').addEventListener('click', load);
 
   // ---------- スタッフの空き状況 ----------
+  let staffSlotsMode = 'list'; // 'list' | 'week'
+  let staffSlotsWeekStart = null;
+
+  function pad2Local(n) {
+    return String(n).padStart(2, '0');
+  }
+  function dateToStrLocal(d) {
+    return `${d.getFullYear()}-${pad2Local(d.getMonth() + 1)}-${pad2Local(d.getDate())}`;
+  }
+  function mondayOfLocal(dateStr) {
+    const d = new Date(`${dateStr}T00:00:00`);
+    const day = d.getDay();
+    const diff = day === 0 ? -6 : 1 - day;
+    d.setDate(d.getDate() + diff);
+    return dateToStrLocal(d);
+  }
+  function addDaysLocal(dateStr, n) {
+    const d = new Date(`${dateStr}T00:00:00`);
+    d.setDate(d.getDate() + n);
+    return dateToStrLocal(d);
+  }
+
   async function initStaffSlots() {
     const select = document.getElementById('staff-slots-select');
     const dateInput = document.getElementById('staff-slots-date');
@@ -288,7 +310,129 @@
       // スタッフ一覧の取得に失敗しても予約一覧の表示は続ける
     }
 
-    loadBtn.addEventListener('click', loadStaffSlots);
+    loadBtn.addEventListener('click', () => {
+      if (staffSlotsMode === 'week') {
+        // 週送りボタンで移動した週を維持したまま(スタッフだけ切り替えて)再表示できるように、
+        // まだ週の指定がない時だけ日付欄から初期値を決める
+        if (!staffSlotsWeekStart) staffSlotsWeekStart = mondayOfLocal(dateInput.value || todayStr);
+        loadStaffSlotsWeek();
+      } else {
+        loadStaffSlots();
+      }
+    });
+
+    document.getElementById('staff-slots-view-list').addEventListener('click', () => {
+      staffSlotsMode = 'list';
+      document.getElementById('staff-slots-view-list').classList.add('is-active');
+      document.getElementById('staff-slots-view-week').classList.remove('is-active');
+      document.getElementById('staff-slots-list-view').hidden = false;
+      document.getElementById('staff-slots-week-view').hidden = true;
+      loadStaffSlots();
+    });
+    document.getElementById('staff-slots-view-week').addEventListener('click', () => {
+      staffSlotsMode = 'week';
+      document.getElementById('staff-slots-view-week').classList.add('is-active');
+      document.getElementById('staff-slots-view-list').classList.remove('is-active');
+      document.getElementById('staff-slots-week-view').hidden = false;
+      document.getElementById('staff-slots-list-view').hidden = true;
+      staffSlotsWeekStart = mondayOfLocal(dateInput.value || todayStr);
+      loadStaffSlotsWeek();
+    });
+    document.getElementById('staff-slots-prev-week').addEventListener('click', () => {
+      staffSlotsWeekStart = addDaysLocal(staffSlotsWeekStart || mondayOfLocal(todayStr), -7);
+      loadStaffSlotsWeek();
+    });
+    document.getElementById('staff-slots-next-week').addEventListener('click', () => {
+      staffSlotsWeekStart = addDaysLocal(staffSlotsWeekStart || mondayOfLocal(todayStr), 7);
+      loadStaffSlotsWeek();
+    });
+  }
+
+  const WEEKDAY_LABELS_JA = ['日', '月', '火', '水', '木', '金', '土'];
+
+  async function loadStaffSlotsWeek() {
+    const select = document.getElementById('staff-slots-select');
+    const table = document.getElementById('staff-slots-week-table');
+    const label = document.getElementById('staff-slots-week-label');
+    const message = document.getElementById('staff-slots-message');
+    message.hidden = true;
+
+    const staffId = select.value;
+    if (!staffId) return;
+    if (!staffSlotsWeekStart) staffSlotsWeekStart = mondayOfLocal(dateToStrLocal(new Date()));
+    label.textContent = `${staffSlotsWeekStart} 〜`;
+    table.innerHTML = '<tr><td class="week-grid__loading">読み込み中...</td></tr>';
+
+    try {
+      const res = await fetch(
+        `/api/admin/staff/${staffId}/slots-week?date=${encodeURIComponent(staffSlotsWeekStart)}`
+      );
+      const data = await res.json();
+      if (!res.ok || !data.ok) {
+        table.innerHTML = '<tr><td class="week-grid__loading">読み込みに失敗しました。</td></tr>';
+        return;
+      }
+      renderStaffSlotsWeekGrid(data);
+    } catch (err) {
+      table.innerHTML = '<tr><td class="week-grid__loading">読み込みに失敗しました。</td></tr>';
+    }
+  }
+
+  function renderStaffSlotsWeekGrid(data) {
+    const table = document.getElementById('staff-slots-week-table');
+    // サーバー側が実際に計算した週の開始日でラベルを合わせ直す(念のため)
+    if (data.weekStart) {
+      staffSlotsWeekStart = data.weekStart;
+      document.getElementById('staff-slots-week-label').textContent = `${data.weekStart} 〜`;
+    }
+    table.innerHTML = '';
+    if (!data.slotTimes || data.slotTimes.length === 0) {
+      table.innerHTML = '<tr><td class="week-grid__loading">この週は表示できる時間帯がありません。</td></tr>';
+      return;
+    }
+    const todayStr = dateToStrLocal(new Date());
+
+    const thead = document.createElement('thead');
+    const headRow = document.createElement('tr');
+    headRow.appendChild(document.createElement('th'));
+    data.days.forEach((day) => {
+      const th = document.createElement('th');
+      const d = new Date(`${day.date}T00:00:00`);
+      th.innerHTML = `${d.getMonth() + 1}/${d.getDate()}<br>${WEEKDAY_LABELS_JA[d.getDay()]}`;
+      if (day.date === todayStr) th.classList.add('week-grid__today');
+      headRow.appendChild(th);
+    });
+    thead.appendChild(headRow);
+    table.appendChild(thead);
+
+    const tbody = document.createElement('tbody');
+    data.slotTimes.forEach((time) => {
+      const tr = document.createElement('tr');
+      const timeTh = document.createElement('th');
+      timeTh.scope = 'row';
+      timeTh.textContent = time;
+      tr.appendChild(timeTh);
+
+      data.days.forEach((day) => {
+        const td = document.createElement('td');
+        if (!day.businessDay) {
+          td.className = 'week-grid__cell--closed';
+          td.textContent = '×';
+        } else if ((day.takenSlots || []).includes(time)) {
+          td.className = 'week-grid__cell--taken';
+          td.textContent = '●';
+        } else if ((day.openSlots || []).includes(time)) {
+          td.className = 'week-grid__cell--open';
+          td.textContent = '○';
+        } else {
+          td.className = 'week-grid__cell--unopened';
+          td.textContent = '−';
+        }
+        tr.appendChild(td);
+      });
+      tbody.appendChild(tr);
+    });
+    table.appendChild(tbody);
   }
 
   async function loadStaffSlots() {

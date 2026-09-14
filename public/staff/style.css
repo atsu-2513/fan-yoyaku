@@ -224,3 +224,65 @@ input {
   padding: 10px !important;
 }
 .history-cell .table { font-size: 12px; }
+
+.view-toggle {
+  display: flex;
+  gap: 8px;
+  margin: 10px 0;
+}
+.view-toggle__btn {
+  flex: 1;
+  padding: 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: #fff;
+  color: var(--ink);
+  font-size: 13px;
+  cursor: pointer;
+}
+.view-toggle__btn.is-active {
+  background: var(--brand);
+  border-color: var(--brand);
+  color: #fff;
+  font-weight: bold;
+}
+
+.week-grid-scroll {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+.week-grid {
+  border-collapse: collapse;
+  width: 100%;
+  min-width: 480px;
+  font-size: 12px;
+}
+.week-grid th,
+.week-grid td {
+  border: 1px solid var(--border);
+  text-align: center;
+  padding: 4px 2px;
+}
+.week-grid thead th {
+  background: #faf8f5;
+  font-weight: normal;
+  white-space: nowrap;
+}
+.week-grid thead th.week-grid__today {
+  background: #f5ecd8;
+  font-weight: bold;
+}
+.week-grid tbody th {
+  font-weight: normal;
+  white-space: nowrap;
+  background: #faf8f5;
+}
+.week-grid__cell--open { color: #2f7a3d; font-weight: bold; }
+.week-grid__cell--taken { color: #c0392b; font-weight: bold; }
+.week-grid__cell--unopened { color: #c8c4bc; }
+.week-grid__cell--closed { color: #c8c4bc; }
+.week-grid__loading {
+  padding: 20px 8px;
+  color: var(--muted);
+  text-align: center;
+}

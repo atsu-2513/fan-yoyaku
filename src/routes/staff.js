@@ -7,6 +7,8 @@ const {
   closeSlot,
   getOpenSlotsForStaff,
   getTakenSlots,
+  getOpenSlotsForStaffRange,
+  getTakenSlotsForRange,
   listReservationsForStaff,
   getReservation,
   confirmReservation,
@@ -32,7 +34,7 @@ const {
   markShopOrderStatus,
 } = require('../db');
 const { isBusinessDay, slotsForDate, getSlotTimes, menuLabel } = require('../businessHours');
-const { computeAvailableStartTimes, expandRange } = require('../availability');
+const { computeAvailableStartTimes, expandRange, mondayOf, addDays } = require('../availability');
 const { hashPassword, verifyPassword, createSessionCookie, clearSessionCookie, getStaffIdFromRequest } = require('../auth');
 const { pushText } = require('../line');
 const { checkAndCreateWaitlistAlerts } = require('../waitlist');
@@ -94,6 +96,35 @@ router.get('/staff/api/slots', requireStaffAuth, async (req, res) => {
   const candidateSlots = businessDay ? await getSlotTimes() : [];
   const openSlots = await getOpenSlotsForStaff(req.staff.id, date);
   res.json({ ok: true, date, businessDay, candidateSlots, openSlots });
+});
+
+// 自分の、指定日を含む週(月曜始まり)7日ぶんの開放状況を一覧表示するための週間グリッド用データ
+router.get('/staff/api/slots-week', requireStaffAuth, async (req, res) => {
+  const { date } = req.query;
+  if (!date) return res.status(400).json({ ok: false, error: 'date_required' });
+
+  const weekStart = mondayOf(date);
+  const weekDates = Array.from({ length: 7 }, (_, i) => addDays(weekStart, i));
+  const rangeEnd = weekDates[6];
+
+  const openByDate = await getOpenSlotsForStaffRange(req.staff.id, weekStart, rangeEnd);
+  const takenByDate = await getTakenSlotsForRange(req.staff.id, weekStart, rangeEnd);
+
+  const slotTimesSet = new Set();
+  const days = [];
+  for (const d of weekDates) {
+    const businessDay = await isBusinessDay(d);
+    const candidateSlots = businessDay ? await getSlotTimes() : [];
+    candidateSlots.forEach((t) => slotTimesSet.add(t));
+    days.push({
+      date: d,
+      businessDay,
+      openSlots: businessDay ? openByDate[d] || [] : [],
+      takenSlots: businessDay ? takenByDate[d] || [] : [],
+    });
+  }
+  const slotTimes = Array.from(slotTimesSet).sort();
+  res.json({ ok: true, weekStart, slotTimes, days });
 });
 
 router.post('/staff/api/slots/toggle', requireStaffAuth, async (req, res) => {

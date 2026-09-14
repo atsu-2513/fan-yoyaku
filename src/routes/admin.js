@@ -10,6 +10,8 @@ const {
   updateStaffEmail,
   getOpenSlotsForStaff,
   getTakenSlots,
+  getOpenSlotsForStaffRange,
+  getTakenSlotsForRange,
   getSettings,
   updateSettings,
   listAllMenusAdmin,
@@ -58,7 +60,7 @@ const {
   invalidateSettingsCache,
   invalidateMenuCache,
 } = require('../businessHours');
-const { computeAvailableStartTimes, expandRange } = require('../availability');
+const { computeAvailableStartTimes, expandRange, mondayOf, addDays } = require('../availability');
 const { pushText } = require('../line');
 const { checkAndCreateWaitlistAlerts } = require('../waitlist');
 
@@ -173,6 +175,39 @@ router.get('/api/admin/staff/:id/slots', async (req, res) => {
   const takenSlots = await getTakenSlots(staffId, date);
 
   res.json({ ok: true, date, businessDay, candidateSlots, openSlots, takenSlots, staffName: staff.name });
+});
+
+// オーナーが特定スタッフの、指定日を含む週(月曜始まり)7日ぶんの開放状況を一覧表示するための週間グリッド用データ
+router.get('/api/admin/staff/:id/slots-week', async (req, res) => {
+  const staffId = Number(req.params.id);
+  const { date } = req.query;
+  if (!date) return res.status(400).json({ ok: false, error: 'date_required' });
+
+  const staff = await getStaffById(staffId);
+  if (!staff) return res.status(404).json({ ok: false, error: 'not_found' });
+
+  const weekStart = mondayOf(date);
+  const weekDates = Array.from({ length: 7 }, (_, i) => addDays(weekStart, i));
+  const rangeEnd = weekDates[6];
+
+  const openByDate = await getOpenSlotsForStaffRange(staffId, weekStart, rangeEnd);
+  const takenByDate = await getTakenSlotsForRange(staffId, weekStart, rangeEnd);
+
+  const slotTimesSet = new Set();
+  const days = [];
+  for (const d of weekDates) {
+    const businessDay = await isBusinessDay(d);
+    const candidateSlots = businessDay ? await getSlotTimes() : [];
+    candidateSlots.forEach((t) => slotTimesSet.add(t));
+    days.push({
+      date: d,
+      businessDay,
+      openSlots: businessDay ? openByDate[d] || [] : [],
+      takenSlots: businessDay ? takenByDate[d] || [] : [],
+    });
+  }
+  const slotTimes = Array.from(slotTimesSet).sort();
+  res.json({ ok: true, weekStart, slotTimes, days, staffName: staff.name });
 });
 
 // ---------- 定休日・営業時間 ----------

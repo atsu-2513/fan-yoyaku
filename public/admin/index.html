@@ -37,7 +37,11 @@
         <input type="date" id="staff-slots-date" />
         <button type="button" id="staff-slots-load" class="btn btn--ghost">表示</button>
       </div>
-      <table class="table">
+      <div class="view-toggle">
+        <button type="button" id="staff-slots-view-list" class="view-toggle__btn is-active">リスト表示</button>
+        <button type="button" id="staff-slots-view-week" class="view-toggle__btn">週間表示</button>
+      </div>
+      <table class="table" id="staff-slots-list-view">
         <thead>
           <tr>
             <th>時間</th>
@@ -46,6 +50,17 @@
         </thead>
         <tbody id="staff-slots-body"></tbody>
       </table>
+      <div id="staff-slots-week-view" hidden>
+        <div class="calendar__nav">
+          <button type="button" id="staff-slots-prev-week" class="btn btn--ghost">＜ 前の週へ</button>
+          <div id="staff-slots-week-label" class="calendar__label"></div>
+          <button type="button" id="staff-slots-next-week" class="btn btn--ghost">次の週へ ＞</button>
+        </div>
+        <p class="slot-hint">○=受付中(空きあり) ／ ●=予約済み ／ −=未開放 ／ ×=定休日</p>
+        <div class="week-grid-scroll">
+          <table class="week-grid" id="staff-slots-week-table"></table>
+        </div>
+      </div>
       <p id="staff-slots-message" class="empty-message" hidden></p>
     </section>
 

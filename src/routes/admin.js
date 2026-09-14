@@ -8,6 +8,7 @@ const {
   listAllStaff,
   getStaffById,
   updateStaffEmail,
+  updateStaffPassword,
   getOpenSlotsForStaff,
   getTakenSlots,
   getOpenSlotsForStaffRange,
@@ -61,6 +62,7 @@ const {
   invalidateMenuCache,
 } = require('../businessHours');
 const { computeAvailableStartTimes, expandRange, mondayOf, addDays } = require('../availability');
+const { hashPassword } = require('../auth');
 const { pushText } = require('../line');
 const { checkAndCreateWaitlistAlerts } = require('../waitlist');
 
@@ -158,6 +160,20 @@ router.post('/api/admin/staff/:id/email', async (req, res) => {
   }
   const updated = await updateStaffEmail(staffId, trimmed || null);
   res.json({ ok: true, staff: updated });
+});
+
+// スタッフのログインパスワードをランダムな新しいものに再設定する(オーナー用)。
+// パスワードはハッシュ化して保存するため、生成した平文パスワードはこのレスポンスにしか登場しない。
+function randomStaffPassword() {
+  return Math.random().toString(36).slice(-8);
+}
+router.post('/api/admin/staff/:id/reset-password', async (req, res) => {
+  const staffId = Number(req.params.id);
+  const staff = await getStaffById(staffId);
+  if (!staff) return res.status(404).json({ ok: false, error: 'not_found' });
+  const newPassword = randomStaffPassword();
+  await updateStaffPassword(staffId, hashPassword(newPassword));
+  res.json({ ok: true, staffName: staff.name, username: staff.username, newPassword });
 });
 
 // オーナーが特定スタッフの、特定日の開放状況(未開放/受付中/予約済み)を確認するための一覧

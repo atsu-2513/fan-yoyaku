@@ -775,6 +775,55 @@
   }
 
   // ---------- スタッフの通知先メールアドレス ----------
+  async function initStaffAccounts() {
+    const tbody = document.getElementById('staff-accounts-body');
+    const message = document.getElementById('staff-accounts-message');
+    tbody.innerHTML = '';
+    try {
+      const res = await fetch('/api/admin/staff');
+      const data = await res.json();
+      (data.staff || []).forEach((s) => {
+        const tr = document.createElement('tr');
+        const nameTd = document.createElement('td');
+        nameTd.textContent = s.name + (s.active ? '' : '(無効)');
+
+        const usernameTd = document.createElement('td');
+        usernameTd.textContent = s.username;
+
+        const actionTd = document.createElement('td');
+        const resetBtn = document.createElement('button');
+        resetBtn.className = 'btn btn--ghost';
+        resetBtn.textContent = '新しいパスワードを発行';
+        resetBtn.addEventListener('click', async () => {
+          if (!window.confirm(`${s.name}さんの新しいパスワードを発行しますか？(今のパスワードは使えなくなります)`)) return;
+          resetBtn.disabled = true;
+          try {
+            const res2 = await fetch(`/api/admin/staff/${s.id}/reset-password`, { method: 'POST' });
+            const data2 = await res2.json();
+            message.hidden = false;
+            if (!res2.ok || !data2.ok) {
+              message.textContent = '発行に失敗しました。';
+              return;
+            }
+            message.textContent = `${data2.staffName}さん(ID: ${data2.username})の新しいパスワード: ${data2.newPassword} — 必ず今すぐスタッフ本人に伝えてください(この画面には二度と表示されません)。`;
+          } catch (err) {
+            message.hidden = false;
+            message.textContent = '通信エラーが発生しました。';
+          } finally {
+            resetBtn.disabled = false;
+          }
+        });
+        actionTd.appendChild(resetBtn);
+
+        tr.append(nameTd, usernameTd, actionTd);
+        tbody.appendChild(tr);
+      });
+    } catch (err) {
+      message.hidden = false;
+      message.textContent = '読み込みに失敗しました。';
+    }
+  }
+
   async function initStaffEmails() {
     const tbody = document.getElementById('staff-email-body');
     const message = document.getElementById('staff-email-message');
@@ -1936,6 +1985,7 @@
   initSettings();
   initMenus();
   initStaffMenuAdjust();
+  initStaffAccounts();
   initStaffEmails();
   loadCustomers();
   initQuiz();

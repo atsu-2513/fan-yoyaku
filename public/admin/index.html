@@ -150,6 +150,27 @@
     </section>
 
     <section class="menu-section">
+      <h2>スタッフアカウント（ログイン情報）</h2>
+      <p class="slot-hint">
+        スタッフ用ログイン画面: <code>https://fan-yoyaku.onrender.com/staff/login.html</code><br />
+        パスワードは暗号化して保存されるため、こちらの画面でも実際のパスワードを確認することはできません。
+        忘れてしまった場合は「新しいパスワードを発行」で再設定してください（発行された新しいパスワードは、
+        その場に一度だけ表示されます。必ずその場でスタッフ本人に伝えてください）。
+      </p>
+      <table class="table" id="staff-accounts-table">
+        <thead>
+          <tr>
+            <th>スタッフ</th>
+            <th>ログインID</th>
+            <th>操作</th>
+          </tr>
+        </thead>
+        <tbody id="staff-accounts-body"></tbody>
+      </table>
+      <p id="staff-accounts-message" class="empty-message" hidden></p>
+    </section>
+
+    <section class="menu-section">
       <h2>スタッフの通知先メールアドレス</h2>
       <p class="slot-hint">予約が入った時に、担当スタッフへメールで通知するためのアドレスです（未設定のスタッフには通知されません）。</p>
       <table class="table" id="staff-email-table">

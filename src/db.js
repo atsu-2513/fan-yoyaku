@@ -388,6 +388,15 @@ async function updateStaffEmail(id, email) {
   return getStaffById(id);
 }
 
+async function updateStaffName(id, name) {
+  await ready();
+  await client.execute({
+    sql: `UPDATE staff SET name = ? WHERE id = ?`,
+    args: [name, id],
+  });
+  return getStaffById(id);
+}
+
 // ---------- 営業設定(定休日・営業時間) ----------
 
 async function getSettings() {
@@ -1287,6 +1296,7 @@ module.exports = {
   listAllStaff,
   updateStaffPassword,
   updateStaffEmail,
+  updateStaffName,
   getSettings,
   updateSettings,
   listMenus,

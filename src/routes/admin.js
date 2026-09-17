@@ -9,6 +9,7 @@ const {
   getStaffById,
   updateStaffEmail,
   updateStaffPassword,
+  updateStaffName,
   getOpenSlotsForStaff,
   getTakenSlots,
   getOpenSlotsForStaffRange,
@@ -55,6 +56,7 @@ const {
 } = require('../db');
 const {
   menuLabel,
+  menuDuration,
   isBusinessDay,
   slotsForDate,
   getSlotTimes,
@@ -80,7 +82,11 @@ router.get('/api/admin/reservations', async (req, res) => {
   const rows = await listReservationsWithStaff();
   const reservations = [];
   for (const r of rows) {
-    reservations.push({ ...r, menuLabel: await menuLabel(r.menu) });
+    reservations.push({
+      ...r,
+      menuLabel: await menuLabel(r.menu),
+      durationMinutes: r.duration_minutes || (await menuDuration(r.menu)),
+    });
   }
   res.json({ ok: true, reservations });
 });
@@ -174,6 +180,17 @@ router.post('/api/admin/staff/:id/reset-password', async (req, res) => {
   const newPassword = randomStaffPassword();
   await updateStaffPassword(staffId, hashPassword(newPassword));
   res.json({ ok: true, staffName: staff.name, username: staff.username, newPassword });
+});
+
+// スタッフの表示名を変更する(オーナー用。ログインIDは変更しない)
+router.post('/api/admin/staff/:id/rename', async (req, res) => {
+  const staffId = Number(req.params.id);
+  const staff = await getStaffById(staffId);
+  if (!staff) return res.status(404).json({ ok: false, error: 'not_found' });
+  const name = typeof req.body?.name === 'string' ? req.body.name.trim().slice(0, 40) : '';
+  if (!name) return res.status(400).json({ ok: false, error: 'name_required' });
+  const updated = await updateStaffName(staffId, name);
+  res.json({ ok: true, staff: updated });
 });
 
 // オーナーが特定スタッフの、特定日の開放状況(未開放/受付中/予約済み)を確認するための一覧

@@ -1,6 +1,7 @@
 (function () {
   const tbody = document.getElementById('reservations-body');
   const emptyMessage = document.getElementById('empty-message');
+  let lastReservations = [];
 
   async function load() {
     tbody.innerHTML = '';
@@ -12,8 +13,10 @@
       }
       const data = await res.json();
       const reservations = data.reservations || [];
+      lastReservations = reservations;
       emptyMessage.hidden = reservations.length > 0;
       reservations.forEach((r) => tbody.appendChild(renderRow(r)));
+      renderSchedule();
     } catch (err) {
       emptyMessage.hidden = false;
       emptyMessage.textContent = '読み込みに失敗しました。';
@@ -265,6 +268,318 @@
   }
 
   document.getElementById('refresh').addEventListener('click', load);
+
+  // ---------- 予約のスケジュール表示(スタッフ×時間帯グリッド。オーナーは全スタッフぶんを閲覧) ----------
+  let scheduleDate = dateToStrLocal(new Date());
+  let scheduleSettings = null;
+  let scheduleStaffAll = null;
+
+  function scheduleViewVisible() {
+    const view = document.getElementById('reservations-schedule-view');
+    return view && !view.hidden;
+  }
+
+  async function ensureScheduleData() {
+    if (!scheduleSettings) {
+      try {
+        const res = await fetch('/api/admin/settings');
+        const data = await res.json();
+        scheduleSettings = data.settings || { openHour: 9, closeHour: 21, closedWeekdays: [] };
+      } catch (err) {
+        scheduleSettings = { openHour: 9, closeHour: 21, closedWeekdays: [] };
+      }
+    }
+    if (!scheduleStaffAll) {
+      try {
+        const res = await fetch('/api/admin/staff');
+        const data = await res.json();
+        scheduleStaffAll = (data.staff || []).filter((s) => s.active);
+      } catch (err) {
+        scheduleStaffAll = [];
+      }
+    }
+  }
+
+  function scheduleSlotTimes() {
+    const s = scheduleSettings || { openHour: 9, closeHour: 21 };
+    const times = [];
+    for (let mins = s.openHour * 60; mins < s.closeHour * 60; mins += 30) {
+      const h = Math.floor(mins / 60);
+      const m = mins % 60;
+      times.push(`${pad2Local(h)}:${pad2Local(m)}`);
+    }
+    return times;
+  }
+
+  async function renderSchedule() {
+    if (!scheduleViewVisible()) return;
+    await ensureScheduleData();
+    const wrap = document.getElementById('schedule-grid-wrap');
+    const summary = document.getElementById('schedule-summary');
+    const dateInput = document.getElementById('schedule-date');
+    if (dateInput.value !== scheduleDate) dateInput.value = scheduleDate;
+
+    const d = new Date(`${scheduleDate}T00:00:00`);
+    const isClosed = (scheduleSettings.closedWeekdays || []).includes(d.getDay());
+
+    const dayReservations = lastReservations.filter(
+      (r) => r.date === scheduleDate && r.status !== 'cancelled' && r.staff_id
+    );
+
+    const staffList = scheduleStaffAll || [];
+    summary.textContent = staffList
+      .map((s) => `${s.name}: ${dayReservations.filter((r) => Number(r.staff_id) === Number(s.id)).length}件`)
+      .join(' / ');
+
+    if (isClosed) {
+      wrap.innerHTML = '<p class="schedule-grid__empty-note">この日は定休日です。</p>';
+      return;
+    }
+    if (!staffList.length) {
+      wrap.innerHTML = '<p class="schedule-grid__empty-note">有効なスタッフがいません。</p>';
+      return;
+    }
+
+    const times = scheduleSlotTimes();
+    if (!times.length) {
+      wrap.innerHTML = '<p class="schedule-grid__empty-note">営業時間が設定されていません。</p>';
+      return;
+    }
+
+    // staffごとに「この行は上のセルのrowspanでカバー済みか」を管理(その行indexより前ならスキップ)
+    const skipUntil = staffList.map(() => -1);
+
+    // staffごとに、開始時刻indexをキーにブロック情報を割り当てる
+    const blocksByStaffAndIndex = staffList.map(() => new Map());
+    staffList.forEach((s, colIdx) => {
+      dayReservations
+        .filter((r) => Number(r.staff_id) === Number(s.id))
+        .forEach((r) => {
+          const startIdx = times.indexOf(r.time);
+          if (startIdx === -1) return; // 営業時間外の予約データは(通常ないが)スキップ
+          const duration = r.durationMinutes || 60;
+          const span = Math.max(1, Math.ceil(duration / 30));
+          blocksByStaffAndIndex[colIdx].set(startIdx, { r, span });
+        });
+    });
+
+    const table = document.createElement('table');
+    table.className = 'schedule-grid';
+    const thead = document.createElement('thead');
+    const headRow = document.createElement('tr');
+    headRow.appendChild(document.createElement('th'));
+    staffList.forEach((s) => {
+      const th = document.createElement('th');
+      th.textContent = s.name;
+      headRow.appendChild(th);
+    });
+    thead.appendChild(headRow);
+    table.appendChild(thead);
+
+    const tbodyEl = document.createElement('tbody');
+    times.forEach((time, rowIdx) => {
+      const tr = document.createElement('tr');
+      const timeTd = document.createElement('td');
+      timeTd.className = 'schedule-grid__time';
+      timeTd.textContent = time;
+      tr.appendChild(timeTd);
+
+      staffList.forEach((s, colIdx) => {
+        if (rowIdx < skipUntil[colIdx]) return; // 上のセルのrowspanでカバー済みなのでtdを出さない
+        const block = blocksByStaffAndIndex[colIdx].get(rowIdx);
+        const td = document.createElement('td');
+        if (block) {
+          const span = Math.min(block.span, times.length - rowIdx);
+          td.rowSpan = span;
+          skipUntil[colIdx] = rowIdx + span;
+          const btn = document.createElement('button');
+          btn.type = 'button';
+          btn.className = `schedule-block schedule-block--${block.r.status}`;
+          const timeLabel = document.createElement('span');
+          timeLabel.className = 'schedule-block__time';
+          timeLabel.textContent = block.r.time;
+          const nameLabel = document.createElement('span');
+          nameLabel.className = 'schedule-block__name';
+          nameLabel.textContent = `${block.r.name} / ${block.r.menuLabel}`;
+          btn.append(timeLabel, nameLabel);
+          btn.addEventListener('click', () => openScheduleModal(block.r));
+          td.appendChild(btn);
+        }
+        tr.appendChild(td);
+      });
+
+      tbodyEl.appendChild(tr);
+    });
+    table.appendChild(tbodyEl);
+
+    wrap.innerHTML = '';
+    const scroll = document.createElement('div');
+    scroll.className = 'schedule-grid-scroll';
+    scroll.appendChild(table);
+    wrap.appendChild(scroll);
+  }
+
+  // ---------- スケジュールのブロックをクリックした時の詳細・編集ポップアップ ----------
+  function closeScheduleModal() {
+    document.getElementById('schedule-modal-overlay').hidden = true;
+    document.getElementById('schedule-modal-box').innerHTML = '';
+  }
+
+  function openScheduleModal(r) {
+    const overlay = document.getElementById('schedule-modal-overlay');
+    const box = document.getElementById('schedule-modal-box');
+    box.innerHTML = '';
+
+    const title = document.createElement('h3');
+    title.textContent = `${r.date} ${r.time}〜`;
+    box.appendChild(title);
+
+    const badge = document.createElement('span');
+    badge.className = `badge badge--${r.status}`;
+    badge.textContent = r.status === 'confirmed' ? '確定' : r.status === 'cancelled' ? 'キャンセル' : '仮予約';
+    box.appendChild(badge);
+
+    [
+      ['担当', r.staff_name || '(未設定)'],
+      ['メニュー', r.menuLabel],
+      ['お名前', r.name],
+      ['電話番号', r.phone],
+    ].forEach(([label, value]) => {
+      const p = document.createElement('p');
+      p.className = 'modal-box__row';
+      p.textContent = `${label}: ${value}`;
+      box.appendChild(p);
+    });
+
+    let replyInput = null;
+    if (r.consultation) {
+      const p = document.createElement('p');
+      p.className = 'modal-box__row';
+      p.style.whiteSpace = 'pre-wrap';
+      p.textContent = `ご相談: ${r.consultation}`;
+      box.appendChild(p);
+      if (r.status === 'pending') {
+        replyInput = document.createElement('textarea');
+        replyInput.className = 'reply-input';
+        replyInput.rows = 2;
+        replyInput.placeholder = '返信（確定時にLINEで届きます・任意）';
+        replyInput.value = r.reply_message || '';
+        box.appendChild(replyInput);
+      } else if (r.reply_message) {
+        const rp = document.createElement('p');
+        rp.className = 'modal-box__row reply-sent';
+        rp.textContent = `返信: ${r.reply_message}`;
+        box.appendChild(rp);
+      }
+    }
+
+    const actions = document.createElement('div');
+    actions.className = 'modal-box__actions';
+
+    if (r.status !== 'cancelled') {
+      if (r.status !== 'confirmed') {
+        const confirmBtn = document.createElement('button');
+        confirmBtn.className = 'btn';
+        confirmBtn.textContent = '確定する';
+        confirmBtn.addEventListener('click', async () => {
+          await confirmReservation(r.id, confirmBtn, replyInput ? replyInput.value : '');
+          closeScheduleModal();
+        });
+        actions.appendChild(confirmBtn);
+      }
+
+      const cancelBtn = document.createElement('button');
+      cancelBtn.className = 'btn btn--ghost';
+      cancelBtn.textContent = 'キャンセル';
+      cancelBtn.addEventListener('click', async () => {
+        await cancelReservation(r.id, cancelBtn);
+        closeScheduleModal();
+      });
+      actions.appendChild(cancelBtn);
+
+      const rescheduleBtn = document.createElement('button');
+      rescheduleBtn.className = 'btn btn--ghost';
+      rescheduleBtn.textContent = '日時を変更する';
+      const reschedulePanel = document.createElement('div');
+      reschedulePanel.hidden = true;
+      reschedulePanel.style.marginTop = '10px';
+      reschedulePanel.style.width = '100%';
+      rescheduleBtn.addEventListener('click', () => {
+        reschedulePanel.hidden = !reschedulePanel.hidden;
+        if (!reschedulePanel.hidden && !reschedulePanel.dataset.built) {
+          buildReschedulePanel(r, reschedulePanel, {
+            set hidden(v) {
+              if (v) reschedulePanel.hidden = true;
+            },
+          });
+          reschedulePanel.dataset.built = '1';
+        }
+      });
+      actions.appendChild(rescheduleBtn);
+      box.appendChild(actions);
+      box.appendChild(reschedulePanel);
+    } else {
+      box.appendChild(actions);
+    }
+
+    const closeWrap = document.createElement('div');
+    closeWrap.className = 'modal-box__close';
+    const closeBtn = document.createElement('button');
+    closeBtn.type = 'button';
+    closeBtn.className = 'btn btn--ghost';
+    closeBtn.textContent = '閉じる';
+    closeBtn.addEventListener('click', closeScheduleModal);
+    closeWrap.appendChild(closeBtn);
+    box.appendChild(closeWrap);
+
+    overlay.hidden = false;
+  }
+
+  function initScheduleView() {
+    const listBtn = document.getElementById('reservations-view-list');
+    const scheduleBtn = document.getElementById('reservations-view-schedule');
+    const listView = document.getElementById('reservations-list-view');
+    const scheduleViewEl = document.getElementById('reservations-schedule-view');
+    const dateInput = document.getElementById('schedule-date');
+    dateInput.value = scheduleDate;
+
+    listBtn.addEventListener('click', () => {
+      listBtn.classList.add('is-active');
+      scheduleBtn.classList.remove('is-active');
+      listView.hidden = false;
+      scheduleViewEl.hidden = true;
+    });
+    scheduleBtn.addEventListener('click', () => {
+      scheduleBtn.classList.add('is-active');
+      listBtn.classList.remove('is-active');
+      listView.hidden = true;
+      scheduleViewEl.hidden = false;
+      renderSchedule();
+    });
+
+    dateInput.addEventListener('change', () => {
+      if (dateInput.value) {
+        scheduleDate = dateInput.value;
+        renderSchedule();
+      }
+    });
+    document.getElementById('schedule-prev-day').addEventListener('click', () => {
+      scheduleDate = addDaysLocal(scheduleDate, -1);
+      renderSchedule();
+    });
+    document.getElementById('schedule-next-day').addEventListener('click', () => {
+      scheduleDate = addDaysLocal(scheduleDate, 1);
+      renderSchedule();
+    });
+    document.getElementById('schedule-today').addEventListener('click', () => {
+      scheduleDate = dateToStrLocal(new Date());
+      renderSchedule();
+    });
+
+    document.getElementById('schedule-modal-overlay').addEventListener('click', (e) => {
+      if (e.target === e.currentTarget) closeScheduleModal();
+    });
+  }
 
   // ---------- スタッフの空き状況 ----------
   let staffSlotsMode = 'list'; // 'list' | 'week'
@@ -814,6 +1129,36 @@
           }
         });
         actionTd.appendChild(resetBtn);
+
+        const renameBtn = document.createElement('button');
+        renameBtn.className = 'btn btn--ghost';
+        renameBtn.textContent = '名前を変更';
+        renameBtn.addEventListener('click', async () => {
+          const newName = window.prompt(`${s.name}さんの新しい表示名を入力してください`, s.name);
+          if (!newName || !newName.trim() || newName.trim() === s.name) return;
+          renameBtn.disabled = true;
+          try {
+            const res2 = await fetch(`/api/admin/staff/${s.id}/rename`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ name: newName.trim() }),
+            });
+            const data2 = await res2.json();
+            message.hidden = false;
+            if (!res2.ok || !data2.ok) {
+              message.textContent = '名前の変更に失敗しました。';
+              return;
+            }
+            message.textContent = `表示名を「${data2.staff.name}」に変更しました。`;
+            initStaffAccounts();
+          } catch (err) {
+            message.hidden = false;
+            message.textContent = '通信エラーが発生しました。';
+          } finally {
+            renameBtn.disabled = false;
+          }
+        });
+        actionTd.appendChild(renameBtn);
 
         tr.append(nameTd, usernameTd, actionTd);
         tbody.appendChild(tr);
@@ -1981,6 +2326,7 @@
   }
 
   load();
+  initScheduleView();
   initStaffSlots();
   initSettings();
   initMenus();

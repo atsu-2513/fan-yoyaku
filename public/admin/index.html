@@ -13,22 +13,44 @@
       <button id="refresh" class="btn btn--ghost">更新</button>
     </header>
 
-    <table class="table">
-      <thead>
-        <tr>
-          <th>状態</th>
-          <th>日時</th>
-          <th>担当</th>
-          <th>メニュー</th>
-          <th>ご相談・返信</th>
-          <th>お名前</th>
-          <th>電話番号</th>
-          <th>操作</th>
-        </tr>
-      </thead>
-      <tbody id="reservations-body"></tbody>
-    </table>
-    <p id="empty-message" class="empty-message" hidden>予約はまだありません。</p>
+    <div class="view-toggle">
+      <button type="button" id="reservations-view-list" class="view-toggle__btn is-active">一覧表示</button>
+      <button type="button" id="reservations-view-schedule" class="view-toggle__btn">スケジュール表示</button>
+    </div>
+
+    <div id="reservations-list-view">
+      <table class="table">
+        <thead>
+          <tr>
+            <th>状態</th>
+            <th>日時</th>
+            <th>担当</th>
+            <th>メニュー</th>
+            <th>ご相談・返信</th>
+            <th>お名前</th>
+            <th>電話番号</th>
+            <th>操作</th>
+          </tr>
+        </thead>
+        <tbody id="reservations-body"></tbody>
+      </table>
+      <p id="empty-message" class="empty-message" hidden>予約はまだありません。</p>
+    </div>
+
+    <div id="reservations-schedule-view" hidden>
+      <div class="schedule-controls">
+        <button type="button" id="schedule-prev-day" class="btn btn--ghost">◀ 前日</button>
+        <input type="date" id="schedule-date" />
+        <button type="button" id="schedule-next-day" class="btn btn--ghost">翌日 ▶</button>
+        <button type="button" id="schedule-today" class="btn btn--ghost">今日</button>
+      </div>
+      <p id="schedule-summary" class="schedule-summary"></p>
+      <div id="schedule-grid-wrap"></div>
+    </div>
+
+    <div id="schedule-modal-overlay" class="modal-overlay" hidden>
+      <div class="modal-box" id="schedule-modal-box"></div>
+    </div>
 
     <section class="staff-slots-section">
       <h2>スタッフの空き状況</h2>

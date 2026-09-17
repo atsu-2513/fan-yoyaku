@@ -74,6 +74,14 @@ async function menuLabel(menuId) {
   return m ? m.label : menuId;
 }
 
+// メニューIDから標準所要時間(分)を引く。予約自体に所要時間が記録されていない
+// (古いデータ等)場合のフォールバックとして、スケジュール表示などで使う
+async function menuDuration(menuId) {
+  const menus = await loadMenus();
+  const m = menus.find((mm) => mm.id === menuId);
+  return (m && m.duration_minutes) || 60;
+}
+
 // 日本時間(JST)基準の「今日」「明日」の日付文字列(YYYY-MM-DD)。
 // サーバーはUTCで動いていることがあるため、前日リマインド等の日付判定はこちらを使う。
 function todayJST() {
@@ -92,6 +100,7 @@ module.exports = {
   slotsForDate,
   isValidMenu,
   menuLabel,
+  menuDuration,
   invalidateSettingsCache,
   invalidateMenuCache,
   todayJST,

@@ -33,7 +33,7 @@ const {
   listShopOrdersForStaff,
   markShopOrderStatus,
 } = require('../db');
-const { isBusinessDay, slotsForDate, getSlotTimes, menuLabel } = require('../businessHours');
+const { isBusinessDay, slotsForDate, getSlotTimes, menuLabel, menuDuration, getBusinessSettings } = require('../businessHours');
 const { computeAvailableStartTimes, expandRange, mondayOf, addDays } = require('../availability');
 const { hashPassword, verifyPassword, createSessionCookie, clearSessionCookie, getStaffIdFromRequest } = require('../auth');
 const { pushText } = require('../line');
@@ -71,6 +71,11 @@ router.post('/staff/api/logout', (req, res) => {
 
 router.get('/staff/api/me', requireStaffAuth, (req, res) => {
   res.json({ ok: true, staff: { id: req.staff.id, name: req.staff.name } });
+});
+
+// スケジュール表示(営業時間グリッド)のための営業設定
+router.get('/staff/api/settings', requireStaffAuth, async (req, res) => {
+  res.json({ ok: true, settings: await getBusinessSettings() });
 });
 
 router.post('/staff/api/change-password', requireStaffAuth, async (req, res) => {
@@ -187,7 +192,11 @@ router.get('/staff/api/reservations', requireStaffAuth, async (req, res) => {
   const rows = await listReservationsForStaff(req.staff.id);
   const reservations = [];
   for (const r of rows) {
-    reservations.push({ ...r, menuLabel: await menuLabel(r.menu) });
+    reservations.push({
+      ...r,
+      menuLabel: await menuLabel(r.menu),
+      durationMinutes: r.duration_minutes || (await menuDuration(r.menu)),
+    });
   }
   res.json({ ok: true, reservations });
 });

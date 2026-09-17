@@ -33,7 +33,15 @@ const {
   listShopOrdersForStaff,
   markShopOrderStatus,
 } = require('../db');
-const { isBusinessDay, slotsForDate, getSlotTimes, menuLabel, menuDuration, getBusinessSettings } = require('../businessHours');
+const {
+  isBusinessDay,
+  slotsForDate,
+  getSlotTimes,
+  menuLabel,
+  menuDuration,
+  getBusinessSettings,
+  getEarlySlotTimes,
+} = require('../businessHours');
 const { computeAvailableStartTimes, expandRange, mondayOf, addDays } = require('../availability');
 const { hashPassword, verifyPassword, createSessionCookie, clearSessionCookie, getStaffIdFromRequest } = require('../auth');
 const { pushText } = require('../line');
@@ -179,8 +187,13 @@ router.get('/staff/api/availability', requireStaffAuth, async (req, res) => {
       durationMinutes = (selectedMenu && selectedMenu.durationMinutes) || existing.duration_minutes || 60;
     }
   }
-  const candidateSlots = await slotsForDate(date);
-  const openSlots = await getOpenSlotsForStaff(req.staff.id, date);
+  const baseCandidateSlots = await slotsForDate(date);
+  const baseOpenSlots = await getOpenSlotsForStaff(req.staff.id, date);
+  // 早朝枠が設定されていれば、この「日時変更」用の空き時間チェックにだけ追加する
+  // (お客様の予約フォームの候補時刻には影響しない)
+  const earlySlots = await getEarlySlotTimes();
+  const candidateSlots = earlySlots.length ? [...earlySlots, ...baseCandidateSlots] : baseCandidateSlots;
+  const openSlots = earlySlots.length ? [...earlySlots, ...baseOpenSlots] : baseOpenSlots;
   const takenSlotsRaw = await getTakenSlots(req.staff.id, date);
   const ownSlots = new Set(existing && existing.date === date ? expandRange(existing.time, durationMinutes) : []);
   const takenSlots = takenSlotsRaw.filter((t) => !ownSlots.has(t));
@@ -477,8 +490,12 @@ router.post('/staff/api/reservations/:id/reschedule', requireStaffAuth, async (r
   const staffMenus = await listMenusForStaff(req.staff.id);
   const selectedMenu = staffMenus.find((m) => m.id === existing.menu);
   const durationMinutes = (selectedMenu && selectedMenu.durationMinutes) || existing.duration_minutes || 60;
-  const candidateSlots = await slotsForDate(date);
-  const openSlots = await getOpenSlotsForStaff(req.staff.id, date);
+  const baseCandidateSlots = await slotsForDate(date);
+  const baseOpenSlots = await getOpenSlotsForStaff(req.staff.id, date);
+  // 空き時間チェックのエンドポイントと同じく、早朝枠を候補に追加してから判定する
+  const earlySlots = await getEarlySlotTimes();
+  const candidateSlots = earlySlots.length ? [...earlySlots, ...baseCandidateSlots] : baseCandidateSlots;
+  const openSlots = earlySlots.length ? [...earlySlots, ...baseOpenSlots] : baseOpenSlots;
   const takenSlotsRaw = await getTakenSlots(req.staff.id, date);
   const ownSlots = new Set(existing.date === date ? expandRange(existing.time, durationMinutes) : []);
   const takenSlots = takenSlotsRaw.filter((t) => !ownSlots.has(t));

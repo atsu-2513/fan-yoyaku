@@ -60,6 +60,7 @@ const {
   isBusinessDay,
   slotsForDate,
   getSlotTimes,
+  getEarlySlotTimes,
   invalidateSettingsCache,
   invalidateMenuCache,
 } = require('../businessHours');
@@ -104,8 +105,13 @@ router.get('/api/admin/reservations/:id/availability', async (req, res) => {
   const staffMenus = await listMenusForStaff(existing.staff_id);
   const selectedMenu = staffMenus.find((m) => m.id === existing.menu);
   const durationMinutes = (selectedMenu && selectedMenu.durationMinutes) || existing.duration_minutes || 60;
-  const candidateSlots = await slotsForDate(date);
-  const openSlots = await getOpenSlotsForStaff(existing.staff_id, date);
+  const baseCandidateSlots = await slotsForDate(date);
+  const baseOpenSlots = await getOpenSlotsForStaff(existing.staff_id, date);
+  // 早朝枠が設定されていれば、この「日時変更」用の空き時間チェックにだけ追加する
+  // (お客様の予約フォームの候補時刻には影響しない)
+  const earlySlots = await getEarlySlotTimes();
+  const candidateSlots = earlySlots.length ? [...earlySlots, ...baseCandidateSlots] : baseCandidateSlots;
+  const openSlots = earlySlots.length ? [...earlySlots, ...baseOpenSlots] : baseOpenSlots;
   const takenSlotsRaw = await getTakenSlots(existing.staff_id, date);
   const ownSlots = new Set(existing.date === date ? expandRange(existing.time, durationMinutes) : []);
   const takenSlots = takenSlotsRaw.filter((t) => !ownSlots.has(t));
@@ -250,7 +256,7 @@ router.get('/api/admin/settings', async (req, res) => {
 });
 
 router.post('/api/admin/settings', async (req, res) => {
-  const { closedWeekdays, openHour, closeHour } = req.body || {};
+  const { closedWeekdays, openHour, closeHour, earlyOpenHour } = req.body || {};
   if (
     !Array.isArray(closedWeekdays) ||
     closedWeekdays.some((d) => !Number.isInteger(d) || d < 0 || d > 6)
@@ -262,10 +268,19 @@ router.post('/api/admin/settings', async (req, res) => {
   if (!Number.isInteger(open) || !Number.isInteger(close) || open < 0 || close > 24 || open >= close) {
     return res.status(400).json({ ok: false, error: 'invalid_hours' });
   }
+  // 早朝枠の開始時刻(スタッフによる予約移動専用)。「使わない」は空文字/null/undefinedで表す
+  let early = null;
+  if (earlyOpenHour !== null && earlyOpenHour !== undefined && earlyOpenHour !== '') {
+    early = Number(earlyOpenHour);
+    if (!Number.isInteger(early) || early < 0 || early >= open) {
+      return res.status(400).json({ ok: false, error: 'invalid_early_hour' });
+    }
+  }
   const settings = await updateSettings({
     closedWeekdays: Array.from(new Set(closedWeekdays)),
     openHour: open,
     closeHour: close,
+    earlyOpenHour: early,
   });
   invalidateSettingsCache();
   res.json({ ok: true, settings });
@@ -577,8 +592,12 @@ router.post('/api/admin/reservations/:id/reschedule', async (req, res) => {
   const staffMenus = await listMenusForStaff(existing.staff_id);
   const selectedMenu = staffMenus.find((m) => m.id === existing.menu);
   const durationMinutes = (selectedMenu && selectedMenu.durationMinutes) || existing.duration_minutes || 60;
-  const candidateSlots = await slotsForDate(date);
-  const openSlots = await getOpenSlotsForStaff(existing.staff_id, date);
+  const baseCandidateSlots = await slotsForDate(date);
+  const baseOpenSlots = await getOpenSlotsForStaff(existing.staff_id, date);
+  // 空き時間チェックのエンドポイントと同じく、早朝枠を候補に追加してから判定する
+  const earlySlots = await getEarlySlotTimes();
+  const candidateSlots = earlySlots.length ? [...earlySlots, ...baseCandidateSlots] : baseCandidateSlots;
+  const openSlots = earlySlots.length ? [...earlySlots, ...baseOpenSlots] : baseOpenSlots;
   const takenSlotsRaw = await getTakenSlots(existing.staff_id, date);
   // 変更先が同じ日の場合、自分自身が今使っている枠は「空き」として扱う
   const ownSlots = new Set(existing.date === date ? expandRange(existing.time, durationMinutes) : []);

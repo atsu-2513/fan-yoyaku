@@ -653,8 +653,11 @@
 
   function scheduleSlotTimes() {
     const s = scheduleSettings || { openHour: 9, closeHour: 21 };
+    // 早朝枠(オーナーによる予約移動専用)が設定されていれば、その時刻からグリッドを表示する
+    // (早朝に移動された予約がグリッドから消えてしまわないようにするため)
+    const startHour = s.earlyOpenHour != null && s.earlyOpenHour < s.openHour ? s.earlyOpenHour : s.openHour;
     const times = [];
-    for (let mins = s.openHour * 60; mins < s.closeHour * 60; mins += 30) {
+    for (let mins = startHour * 60; mins < s.closeHour * 60; mins += 30) {
       const h = Math.floor(mins / 60);
       const m = mins % 60;
       times.push(`${pad2(h)}:${pad2(m)}`);

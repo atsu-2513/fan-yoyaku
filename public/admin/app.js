@@ -302,8 +302,11 @@
 
   function scheduleSlotTimes() {
     const s = scheduleSettings || { openHour: 9, closeHour: 21 };
+    // 早朝枠(スタッフによる予約移動専用)が設定されていれば、その時刻からグリッドを表示する
+    // (早朝に移動された予約がグリッドから消えてしまわないようにするため)
+    const startHour = s.earlyOpenHour != null && s.earlyOpenHour < s.openHour ? s.earlyOpenHour : s.openHour;
     const times = [];
-    for (let mins = s.openHour * 60; mins < s.closeHour * 60; mins += 30) {
+    for (let mins = startHour * 60; mins < s.closeHour * 60; mins += 30) {
       const h = Math.floor(mins / 60);
       const m = mins % 60;
       times.push(`${pad2Local(h)}:${pad2Local(m)}`);
@@ -807,6 +810,7 @@
   function populateHourSelects() {
     const openSelect = document.getElementById('open-hour-select');
     const closeSelect = document.getElementById('close-hour-select');
+    const earlySelect = document.getElementById('early-hour-select');
     for (let h = 0; h <= 23; h++) {
       const opt = document.createElement('option');
       opt.value = h;
@@ -818,6 +822,16 @@
       opt.value = h;
       opt.textContent = `${String(h % 24).padStart(2, '0')}:00`;
       closeSelect.appendChild(opt);
+    }
+    const noneOpt = document.createElement('option');
+    noneOpt.value = '';
+    noneOpt.textContent = '使わない';
+    earlySelect.appendChild(noneOpt);
+    for (let h = 0; h <= 23; h++) {
+      const opt = document.createElement('option');
+      opt.value = h;
+      opt.textContent = `${String(h).padStart(2, '0')}:00`;
+      earlySelect.appendChild(opt);
     }
   }
 
@@ -833,6 +847,7 @@
       });
       document.getElementById('open-hour-select').value = String(s.openHour);
       document.getElementById('close-hour-select').value = String(s.closeHour);
+      document.getElementById('early-hour-select').value = s.earlyOpenHour != null ? String(s.earlyOpenHour) : '';
     } catch (err) {
       // 読み込み失敗時はデフォルト表示のまま
     }
@@ -844,17 +859,19 @@
       );
       const openHour = Number(document.getElementById('open-hour-select').value);
       const closeHour = Number(document.getElementById('close-hour-select').value);
+      const earlyRaw = document.getElementById('early-hour-select').value;
+      const earlyOpenHour = earlyRaw === '' ? null : Number(earlyRaw);
       message.hidden = true;
       try {
         const res = await fetch('/api/admin/settings', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ closedWeekdays, openHour, closeHour }),
+          body: JSON.stringify({ closedWeekdays, openHour, closeHour, earlyOpenHour }),
         });
         const data = await res.json();
         message.hidden = false;
         if (!res.ok || !data.ok) {
-          message.textContent = '保存に失敗しました（開店・閉店時刻をご確認ください）。';
+          message.textContent = '保存に失敗しました（開店・閉店時刻・早朝枠の設定をご確認ください）。';
           return;
         }
         message.textContent = '保存しました。';

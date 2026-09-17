@@ -408,15 +408,18 @@ async function getSettings() {
     closedWeekdays: map.closed_weekdays ? JSON.parse(map.closed_weekdays) : [2],
     openHour: map.open_hour ? Number(map.open_hour) : 9,
     closeHour: map.close_hour ? Number(map.close_hour) : 21,
+    earlyOpenHour:
+      map.early_open_hour !== undefined && map.early_open_hour !== '' ? Number(map.early_open_hour) : null,
   };
 }
 
-async function updateSettings({ closedWeekdays, openHour, closeHour }) {
+async function updateSettings({ closedWeekdays, openHour, closeHour, earlyOpenHour }) {
   await ready();
   const entries = [
     ['closed_weekdays', JSON.stringify(closedWeekdays)],
     ['open_hour', String(openHour)],
     ['close_hour', String(closeHour)],
+    ['early_open_hour', earlyOpenHour === null || earlyOpenHour === undefined ? '' : String(earlyOpenHour)],
   ];
   for (const [key, value] of entries) {
     await client.execute({

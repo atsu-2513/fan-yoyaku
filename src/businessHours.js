@@ -82,6 +82,21 @@ async function menuDuration(menuId) {
   return (m && m.duration_minutes) || 60;
 }
 
+// 早朝枠(スタッフによる「予約の日時変更」でだけ選べる、通常営業時間より前の時間帯)の
+// 時刻一覧。オーナーが設定していない、または通常の開店時刻より後になっている場合は空配列。
+// お客様の予約フォーム側の時刻一覧(getSlotTimes/slotsForDate)には一切影響しない。
+async function getEarlySlotTimes() {
+  const s = await loadSettings();
+  if (s.earlyOpenHour == null || s.earlyOpenHour >= s.openHour) return [];
+  const times = [];
+  for (let mins = s.earlyOpenHour * 60; mins < s.openHour * 60; mins += 30) {
+    const h = Math.floor(mins / 60);
+    const m = mins % 60;
+    times.push(`${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`);
+  }
+  return times;
+}
+
 // 日本時間(JST)基準の「今日」「明日」の日付文字列(YYYY-MM-DD)。
 // サーバーはUTCで動いていることがあるため、前日リマインド等の日付判定はこちらを使う。
 function todayJST() {
@@ -101,6 +116,7 @@ module.exports = {
   isValidMenu,
   menuLabel,
   menuDuration,
+  getEarlySlotTimes,
   invalidateSettingsCache,
   invalidateMenuCache,
   todayJST,

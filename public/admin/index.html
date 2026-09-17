@@ -109,6 +109,18 @@
         </label>
       </div>
       <p class="slot-hint">閉店の1時間前が最終受付時刻になります。</p>
+      <div class="hours-row">
+        <label>
+          早朝枠の開始時刻(スタッフによる予約移動専用)
+          <select id="early-hour-select"></select>
+        </label>
+      </div>
+      <p class="slot-hint">
+        ここで時刻を選ぶと、その時刻から開店時刻までの間を「予約の日時を変更する」機能でだけ選べるようになります。
+        お客様の予約フォームには表示されず、お客様が直接この時間帯を予約することはできません
+        （早朝を希望するお客様がいた場合に、こちらから既存のご予約を移動させるための枠です）。
+        使わない場合は「使わない」のままにしてください。
+      </p>
       <button type="button" id="settings-save" class="btn">保存する</button>
       <p id="settings-message" class="empty-message" hidden></p>
     </section>

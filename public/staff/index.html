@@ -65,6 +65,34 @@
     </section>
 
     <section class="card">
+      <h2>メニュー管理</h2>
+      <p class="slot-hint">
+        お客様の予約フォームに表示される、あなた自身のメニュー一覧です。名前・価格・施術時間はいつでも変更できます。
+        「公開する」のチェックを外すと、お客様の予約フォームには表示されなくなります（過去の予約履歴には引き続き表示されます）。
+      </p>
+      <table class="table" id="own-menu-table">
+        <thead>
+          <tr>
+            <th>メニュー名</th>
+            <th>価格（円）</th>
+            <th>施術時間（分）</th>
+            <th>公開する</th>
+            <th>操作</th>
+          </tr>
+        </thead>
+        <tbody id="own-menu-body"></tbody>
+      </table>
+      <form id="own-menu-add-form" class="customer-add-form">
+        <input type="text" id="new-own-menu-label" placeholder="新しいメニュー名" required />
+        <input type="number" id="new-own-menu-price" placeholder="価格（円・任意）" min="0" />
+        <input type="number" id="new-own-menu-duration" placeholder="施術時間（分）" min="30" step="30" value="60" />
+        <button type="submit" class="btn btn--ghost">メニューを追加</button>
+      </form>
+      <p class="slot-hint">施術時間は30分単位で扱われます（例: 45分と入力すると60分になります）。</p>
+      <p id="own-menu-message" class="empty-message" hidden></p>
+    </section>
+
+    <section class="card">
       <h2>自分の予約一覧</h2>
       <div class="view-toggle">
         <button type="button" id="reservations-view-list" class="view-toggle__btn is-active">一覧表示</button>

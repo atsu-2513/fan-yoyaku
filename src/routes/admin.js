@@ -17,10 +17,10 @@ const {
   getSettings,
   updateSettings,
   listAllMenusAdmin,
-  createMenu,
   updateMenu,
-  getStaffMenuOverrides,
-  setStaffMenuOverride,
+  getMenuById,
+  listAllMenusForStaff,
+  createMenuForStaff,
   listAllCustomersWithStaff,
   getCustomerById,
   getCustomerHistory,
@@ -286,8 +286,10 @@ router.post('/api/admin/settings', async (req, res) => {
   res.json({ ok: true, settings });
 });
 
-// ---------- メニュー管理(共通カタログ) ----------
-
+// ---------- メニュー管理(スタッフ別。オーナーは全スタッフぶんを確認・編集できる) ----------
+// 「共通メニュー」という概念は廃止し、メニューはスタッフごとに完全に独立して管理する。
+// このエンドポイントは全メニュー行(誰のものかに関わらず)を返す読み取り専用の一覧で、
+// 過去の予約のメニュー名表示や、メニュー診断クイズの選択肢の選択肢一覧づくりに使う。
 router.get('/api/admin/menus', async (req, res) => {
   res.json({ ok: true, menus: await listAllMenusAdmin() });
 });
@@ -299,7 +301,17 @@ function parseDurationMinutes(value) {
   return Math.ceil(n / 30) * 30;
 }
 
-router.post('/api/admin/menus', async (req, res) => {
+router.get('/api/admin/staff/:id/menus', async (req, res) => {
+  const staffId = Number(req.params.id);
+  const staff = await getStaffById(staffId);
+  if (!staff) return res.status(404).json({ ok: false, error: 'not_found' });
+  res.json({ ok: true, menus: await listAllMenusForStaff(staffId) });
+});
+
+router.post('/api/admin/staff/:id/menus', async (req, res) => {
+  const staffId = Number(req.params.id);
+  const staff = await getStaffById(staffId);
+  if (!staff) return res.status(404).json({ ok: false, error: 'not_found' });
   const { label, price, durationMinutes } = req.body || {};
   const trimmedLabel = typeof label === 'string' ? label.trim() : '';
   if (!trimmedLabel) return res.status(400).json({ ok: false, error: 'label_required' });
@@ -308,13 +320,19 @@ router.post('/api/admin/menus', async (req, res) => {
     return res.status(400).json({ ok: false, error: 'invalid_price' });
   }
   const duration = parseDurationMinutes(durationMinutes) || 60;
-  const menu = await createMenu({ label: trimmedLabel, price: priceNum, durationMinutes: duration });
+  const menu = await createMenuForStaff(staffId, { label: trimmedLabel, price: priceNum, durationMinutes: duration });
   invalidateMenuCache();
   res.json({ ok: true, menu });
 });
 
-router.put('/api/admin/menus/:id', async (req, res) => {
-  const { id } = req.params;
+router.put('/api/admin/staff/:id/menus/:menuId', async (req, res) => {
+  const staffId = Number(req.params.id);
+  const staff = await getStaffById(staffId);
+  if (!staff) return res.status(404).json({ ok: false, error: 'not_found' });
+  const existing = await getMenuById(req.params.menuId);
+  if (!existing || Number(existing.staff_id) !== staffId) {
+    return res.status(404).json({ ok: false, error: 'not_found' });
+  }
   const { label, price, durationMinutes, active } = req.body || {};
   const trimmedLabel = typeof label === 'string' ? label.trim() : '';
   if (!trimmedLabel) return res.status(400).json({ ok: false, error: 'label_required' });
@@ -323,43 +341,14 @@ router.put('/api/admin/menus/:id', async (req, res) => {
     return res.status(400).json({ ok: false, error: 'invalid_price' });
   }
   const duration = parseDurationMinutes(durationMinutes) || 60;
-  const menu = await updateMenu(id, { label: trimmedLabel, price: priceNum, durationMinutes: duration, active: active !== false });
+  const menu = await updateMenu(req.params.menuId, {
+    label: trimmedLabel,
+    price: priceNum,
+    durationMinutes: duration,
+    active: active !== false,
+  });
   invalidateMenuCache();
   res.json({ ok: true, menu });
-});
-
-// ---------- スタッフごとのメニュー調整 ----------
-
-router.get('/api/admin/staff/:id/menus', async (req, res) => {
-  const staffId = Number(req.params.id);
-  const staff = await getStaffById(staffId);
-  if (!staff) return res.status(404).json({ ok: false, error: 'not_found' });
-  const catalog = await listAllMenusAdmin();
-  const overrides = await getStaffMenuOverrides(staffId);
-  res.json({ ok: true, catalog, overrides });
-});
-
-router.post('/api/admin/staff/:id/menus', async (req, res) => {
-  const staffId = Number(req.params.id);
-  const staff = await getStaffById(staffId);
-  if (!staff) return res.status(404).json({ ok: false, error: 'not_found' });
-  const { overrides } = req.body || {};
-  if (!Array.isArray(overrides)) return res.status(400).json({ ok: false, error: 'missing_fields' });
-
-  for (const o of overrides) {
-    if (!o || typeof o.menuId !== 'string') continue;
-    const priceOverride =
-      o.priceOverride === '' || o.priceOverride === null || o.priceOverride === undefined
-        ? null
-        : Number(o.priceOverride);
-    if (priceOverride !== null && !Number.isFinite(priceOverride)) continue;
-    await setStaffMenuOverride(staffId, o.menuId, {
-      enabled: o.enabled !== false,
-      priceOverride,
-    });
-  }
-  invalidateMenuCache();
-  res.json({ ok: true });
 });
 
 // ---------- メニュー診断クイズ ----------

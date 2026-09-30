@@ -184,6 +184,13 @@ input {
   text-align: left;
 }
 .table th { color: var(--muted); font-weight: normal; font-size: 11px; }
+.table-input {
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  font-size: 13px;
+  width: 100%;
+}
 
 .badge {
   display: inline-block;

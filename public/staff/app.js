@@ -32,6 +32,7 @@
       renderCalendar();
       loadReservations();
       initScheduleView();
+      initOwnMenus();
       loadCustomers();
       loadCandidateRequests();
       loadWaitlistAlerts();
@@ -1497,6 +1498,125 @@
     }
 
     return card;
+  }
+
+  // ---------- 自分のメニュー管理 ----------
+  function renderOwnMenuRow(m) {
+    const tr = document.createElement('tr');
+
+    const labelTd = document.createElement('td');
+    const labelInput = document.createElement('input');
+    labelInput.className = 'table-input';
+    labelInput.type = 'text';
+    labelInput.value = m.label;
+    labelTd.appendChild(labelInput);
+
+    const priceTd = document.createElement('td');
+    const priceInput = document.createElement('input');
+    priceInput.className = 'table-input';
+    priceInput.type = 'number';
+    priceInput.min = '0';
+    priceInput.value = m.price != null ? m.price : '';
+    priceTd.appendChild(priceInput);
+
+    const durationTd = document.createElement('td');
+    const durationInput = document.createElement('input');
+    durationInput.className = 'table-input';
+    durationInput.type = 'number';
+    durationInput.min = '30';
+    durationInput.step = '30';
+    durationInput.value = m.duration_minutes || 60;
+    durationTd.appendChild(durationInput);
+
+    const activeTd = document.createElement('td');
+    const activeCheck = document.createElement('input');
+    activeCheck.type = 'checkbox';
+    activeCheck.checked = Number(m.active) === 1;
+    activeTd.appendChild(activeCheck);
+
+    const actionTd = document.createElement('td');
+    const saveBtn = document.createElement('button');
+    saveBtn.className = 'btn btn--ghost';
+    saveBtn.textContent = '保存';
+    saveBtn.addEventListener('click', async () => {
+      saveBtn.disabled = true;
+      const message = document.getElementById('own-menu-message');
+      try {
+        const res = await fetch(`/staff/api/menus/${encodeURIComponent(m.id)}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            label: labelInput.value.trim(),
+            price: priceInput.value === '' ? null : Number(priceInput.value),
+            durationMinutes: durationInput.value === '' ? 60 : Number(durationInput.value),
+            active: activeCheck.checked,
+          }),
+        });
+        const data = await res.json();
+        message.hidden = false;
+        message.textContent = res.ok && data.ok ? '保存しました。' : '保存に失敗しました。';
+      } catch (err) {
+        message.hidden = false;
+        message.textContent = '通信エラーが発生しました。';
+      } finally {
+        saveBtn.disabled = false;
+      }
+    });
+    actionTd.appendChild(saveBtn);
+
+    tr.append(labelTd, priceTd, durationTd, activeTd, actionTd);
+    return tr;
+  }
+
+  async function loadOwnMenus() {
+    const tbody = document.getElementById('own-menu-body');
+    tbody.innerHTML = '';
+    try {
+      const res = await fetch('/staff/api/menus');
+      const data = await res.json();
+      (data.menus || []).forEach((m) => tbody.appendChild(renderOwnMenuRow(m)));
+    } catch (err) {
+      // 読み込み失敗時は空のまま(次回リロードで再試行)
+    }
+  }
+
+  function initOwnMenus() {
+    loadOwnMenus();
+
+    document.getElementById('own-menu-add-form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const labelInput = document.getElementById('new-own-menu-label');
+      const priceInput = document.getElementById('new-own-menu-price');
+      const durationInput = document.getElementById('new-own-menu-duration');
+      const message = document.getElementById('own-menu-message');
+      const label = labelInput.value.trim();
+      if (!label) return;
+      try {
+        const res = await fetch('/staff/api/menus', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            label,
+            price: priceInput.value === '' ? null : Number(priceInput.value),
+            durationMinutes: durationInput.value === '' ? 60 : Number(durationInput.value),
+          }),
+        });
+        const data = await res.json();
+        message.hidden = false;
+        if (!res.ok || !data.ok) {
+          message.textContent = '追加に失敗しました。';
+          return;
+        }
+        message.textContent = 'メニューを追加しました。';
+        labelInput.value = '';
+        priceInput.value = '';
+        durationInput.value = '60';
+        loadOwnMenus();
+      } catch (err) {
+        message.hidden = false;
+        message.textContent = '通信エラーが発生しました。';
+      }
+    });
   }
 
   init();

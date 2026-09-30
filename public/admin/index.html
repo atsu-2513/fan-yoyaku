@@ -126,8 +126,16 @@
     </section>
 
     <section class="menu-section">
-      <h2>メニュー管理（共通）</h2>
-      <table class="table" id="menu-table">
+      <h2>メニュー管理（スタッフ別）</h2>
+      <p class="slot-hint">
+        メニューは各スタッフが自分の管理画面から自由に追加・編集できます。ここではオーナーとして、
+        選んだスタッフのメニューをまとめて確認・編集できます（新規追加もできます）。
+      </p>
+      <div class="staff-slots-controls">
+        <select id="staff-menu-select"></select>
+        <button type="button" id="staff-menu-load" class="btn btn--ghost">読み込み</button>
+      </div>
+      <table class="table" id="staff-menu-table">
         <thead>
           <tr>
             <th>メニュー名</th>
@@ -137,16 +145,16 @@
             <th>操作</th>
           </tr>
         </thead>
-        <tbody id="menu-body"></tbody>
+        <tbody id="staff-menu-body"></tbody>
       </table>
-      <form id="menu-add-form" class="menu-add-form">
-        <input type="text" id="new-menu-label" placeholder="新しいメニュー名" required />
-        <input type="number" id="new-menu-price" placeholder="価格（円・任意）" min="0" />
-        <input type="number" id="new-menu-duration" placeholder="施術時間（分）" min="30" step="30" value="60" />
-        <button type="submit" class="btn btn--ghost">メニューを追加</button>
+      <form id="staff-menu-add-form" class="menu-add-form">
+        <input type="text" id="new-staff-menu-label" placeholder="新しいメニュー名" required />
+        <input type="number" id="new-staff-menu-price" placeholder="価格（円・任意）" min="0" />
+        <input type="number" id="new-staff-menu-duration" placeholder="施術時間（分）" min="30" step="30" value="60" />
+        <button type="submit" class="btn btn--ghost">このスタッフにメニューを追加</button>
       </form>
       <p class="slot-hint">施術時間は30分単位で扱われます（例: 45分と入力すると60分になります）。</p>
-      <p id="menu-message" class="empty-message" hidden></p>
+      <p id="staff-menu-message" class="empty-message" hidden></p>
     </section>
 
     <section class="menu-section">
@@ -158,29 +166,6 @@
         <button type="submit" class="btn btn--ghost">質問を追加</button>
       </form>
       <p id="quiz-message" class="empty-message" hidden></p>
-    </section>
-
-    <section class="menu-section">
-      <h2>スタッフごとのメニュー調整</h2>
-      <p class="slot-hint">共通メニューを基本として、特定のスタッフだけ「提供しない」「価格を変える」を設定できます。</p>
-      <div class="staff-slots-controls">
-        <select id="staff-menu-select"></select>
-        <button type="button" id="staff-menu-load" class="btn btn--ghost">読み込み</button>
-      </div>
-      <table class="table" id="staff-menu-table">
-        <thead>
-          <tr>
-            <th>メニュー</th>
-            <th>共通価格</th>
-            <th>施術時間</th>
-            <th>提供する</th>
-            <th>価格を変える場合（円）</th>
-          </tr>
-        </thead>
-        <tbody id="staff-menu-body"></tbody>
-      </table>
-      <button type="button" id="staff-menu-save" class="btn" style="margin-top:10px;">保存する</button>
-      <p id="staff-menu-message" class="empty-message" hidden></p>
     </section>
 
     <section class="menu-section">

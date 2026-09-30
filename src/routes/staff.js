@@ -22,6 +22,10 @@ const {
   getCustomerHistory,
   getLineUserIdForCustomer,
   listMenusForStaff,
+  listAllMenusForStaff,
+  createMenuForStaff,
+  updateMenu,
+  getMenuById,
   getCandidateRequest,
   listCandidateRequestsForStaff,
   confirmCandidateRequest,
@@ -41,6 +45,7 @@ const {
   menuDuration,
   getBusinessSettings,
   getEarlySlotTimes,
+  invalidateMenuCache,
 } = require('../businessHours');
 const { computeAvailableStartTimes, expandRange, mondayOf, addDays } = require('../availability');
 const { hashPassword, verifyPassword, createSessionCookie, clearSessionCookie, getStaffIdFromRequest } = require('../auth');
@@ -84,6 +89,57 @@ router.get('/staff/api/me', requireStaffAuth, (req, res) => {
 // スケジュール表示(営業時間グリッド)のための営業設定
 router.get('/staff/api/settings', requireStaffAuth, async (req, res) => {
   res.json({ ok: true, settings: await getBusinessSettings() });
+});
+
+// ---------- 自分のメニュー管理(名前・価格・施術時間の追加/変更、公開・非公開の切り替え) ----------
+
+router.get('/staff/api/menus', requireStaffAuth, async (req, res) => {
+  res.json({ ok: true, menus: await listAllMenusForStaff(req.staff.id) });
+});
+
+function parseStaffMenuDuration(value) {
+  const n = Number(value);
+  if (!Number.isFinite(n) || n <= 0) return 60;
+  return Math.ceil(n / 30) * 30; // 30分刻みに切り上げる(例: 45分と入力されたら60分扱い)
+}
+
+router.post('/staff/api/menus', requireStaffAuth, async (req, res) => {
+  const { label, price, durationMinutes } = req.body || {};
+  const trimmedLabel = typeof label === 'string' ? label.trim() : '';
+  if (!trimmedLabel) return res.status(400).json({ ok: false, error: 'label_required' });
+  const priceNum = price === '' || price === null || price === undefined ? null : Number(price);
+  if (priceNum !== null && (!Number.isFinite(priceNum) || priceNum < 0)) {
+    return res.status(400).json({ ok: false, error: 'invalid_price' });
+  }
+  const menu = await createMenuForStaff(req.staff.id, {
+    label: trimmedLabel,
+    price: priceNum,
+    durationMinutes: parseStaffMenuDuration(durationMinutes),
+  });
+  invalidateMenuCache();
+  res.json({ ok: true, menu });
+});
+
+router.put('/staff/api/menus/:menuId', requireStaffAuth, async (req, res) => {
+  const existing = await getMenuById(req.params.menuId);
+  if (!existing || Number(existing.staff_id) !== Number(req.staff.id)) {
+    return res.status(404).json({ ok: false, error: 'not_found' });
+  }
+  const { label, price, durationMinutes, active } = req.body || {};
+  const trimmedLabel = typeof label === 'string' ? label.trim() : '';
+  if (!trimmedLabel) return res.status(400).json({ ok: false, error: 'label_required' });
+  const priceNum = price === '' || price === null || price === undefined ? null : Number(price);
+  if (priceNum !== null && (!Number.isFinite(priceNum) || priceNum < 0)) {
+    return res.status(400).json({ ok: false, error: 'invalid_price' });
+  }
+  const menu = await updateMenu(req.params.menuId, {
+    label: trimmedLabel,
+    price: priceNum,
+    durationMinutes: parseStaffMenuDuration(durationMinutes),
+    active: active !== false,
+  });
+  invalidateMenuCache();
+  res.json({ ok: true, menu });
 });
 
 router.post('/staff/api/change-password', requireStaffAuth, async (req, res) => {

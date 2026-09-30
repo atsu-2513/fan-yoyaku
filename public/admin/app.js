@@ -882,18 +882,8 @@
     });
   }
 
-  // ---------- メニュー管理(共通カタログ) ----------
-  async function loadMenuCatalog() {
-    const tbody = document.getElementById('menu-body');
-    tbody.innerHTML = '';
-    const res = await fetch('/api/admin/menus');
-    const data = await res.json();
-    const menus = data.menus || [];
-    menus.forEach((m) => tbody.appendChild(renderMenuRow(m)));
-    return menus;
-  }
-
-  function renderMenuRow(m) {
+  // ---------- メニュー管理(スタッフ別。オーナーは選んだスタッフのメニューをまとめて確認・編集できる) ----------
+  function renderStaffMenuRow(staffId, m) {
     const tr = document.createElement('tr');
 
     const labelTd = document.createElement('td');
@@ -932,9 +922,9 @@
     saveBtn.textContent = '保存';
     saveBtn.addEventListener('click', async () => {
       saveBtn.disabled = true;
-      const message = document.getElementById('menu-message');
+      const message = document.getElementById('staff-menu-message');
       try {
-        const res = await fetch(`/api/admin/menus/${encodeURIComponent(m.id)}`, {
+        const res = await fetch(`/api/admin/staff/${staffId}/menus/${encodeURIComponent(m.id)}`, {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -960,19 +950,64 @@
     return tr;
   }
 
-  function initMenus() {
-    loadMenuCatalog();
+  async function loadStaffMenus() {
+    const select = document.getElementById('staff-menu-select');
+    const tbody = document.getElementById('staff-menu-body');
+    const message = document.getElementById('staff-menu-message');
+    tbody.innerHTML = '';
+    message.hidden = true;
+    const staffId = select.value;
+    if (!staffId) return;
 
-    document.getElementById('menu-add-form').addEventListener('submit', async (e) => {
+    try {
+      const res = await fetch(`/api/admin/staff/${staffId}/menus`);
+      const data = await res.json();
+      if (!res.ok || !data.ok) {
+        message.hidden = false;
+        message.textContent = '読み込みに失敗しました。';
+        return;
+      }
+      (data.menus || []).forEach((m) => tbody.appendChild(renderStaffMenuRow(staffId, m)));
+    } catch (err) {
+      message.hidden = false;
+      message.textContent = '読み込みに失敗しました。';
+    }
+  }
+
+  function initStaffMenus() {
+    const select = document.getElementById('staff-menu-select');
+    (async () => {
+      try {
+        const res = await fetch('/api/admin/staff');
+        const data = await res.json();
+        (data.staff || []).forEach((s) => {
+          const opt = document.createElement('option');
+          opt.value = s.id;
+          opt.textContent = s.name + (s.active ? '' : '(無効)');
+          select.appendChild(opt);
+        });
+      } catch (err) {
+        // 一覧取得失敗時は無視
+      }
+    })();
+    document.getElementById('staff-menu-load').addEventListener('click', loadStaffMenus);
+
+    document.getElementById('staff-menu-add-form').addEventListener('submit', async (e) => {
       e.preventDefault();
-      const labelInput = document.getElementById('new-menu-label');
-      const priceInput = document.getElementById('new-menu-price');
-      const durationInput = document.getElementById('new-menu-duration');
-      const message = document.getElementById('menu-message');
+      const staffId = select.value;
+      const labelInput = document.getElementById('new-staff-menu-label');
+      const priceInput = document.getElementById('new-staff-menu-price');
+      const durationInput = document.getElementById('new-staff-menu-duration');
+      const message = document.getElementById('staff-menu-message');
       const label = labelInput.value.trim();
+      if (!staffId) {
+        message.hidden = false;
+        message.textContent = '先にスタッフを選んで「読み込み」を押してください。';
+        return;
+      }
       if (!label) return;
       try {
-        const res = await fetch('/api/admin/menus', {
+        const res = await fetch(`/api/admin/staff/${staffId}/menus`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -991,119 +1026,12 @@
         labelInput.value = '';
         priceInput.value = '';
         durationInput.value = '60';
-        loadMenuCatalog();
+        loadStaffMenus();
       } catch (err) {
         message.hidden = false;
         message.textContent = '通信エラーが発生しました。';
       }
     });
-  }
-
-  // ---------- スタッフごとのメニュー調整 ----------
-  async function initStaffMenuAdjust() {
-    const select = document.getElementById('staff-menu-select');
-    try {
-      const res = await fetch('/api/admin/staff');
-      const data = await res.json();
-      (data.staff || []).forEach((s) => {
-        const opt = document.createElement('option');
-        opt.value = s.id;
-        opt.textContent = s.name + (s.active ? '' : '(無効)');
-        select.appendChild(opt);
-      });
-    } catch (err) {
-      // 一覧取得失敗時は無視
-    }
-    document.getElementById('staff-menu-load').addEventListener('click', loadStaffMenuAdjust);
-    document.getElementById('staff-menu-save').addEventListener('click', saveStaffMenuAdjust);
-  }
-
-  async function loadStaffMenuAdjust() {
-    const select = document.getElementById('staff-menu-select');
-    const tbody = document.getElementById('staff-menu-body');
-    const message = document.getElementById('staff-menu-message');
-    tbody.innerHTML = '';
-    message.hidden = true;
-    const staffId = select.value;
-    if (!staffId) return;
-
-    try {
-      const res = await fetch(`/api/admin/staff/${staffId}/menus`);
-      const data = await res.json();
-      if (!res.ok || !data.ok) {
-        message.hidden = false;
-        message.textContent = '読み込みに失敗しました。';
-        return;
-      }
-      const overrideMap = new Map((data.overrides || []).map((o) => [o.menu_id, o]));
-      (data.catalog || []).forEach((m) => {
-        const o = overrideMap.get(m.id);
-        const tr = document.createElement('tr');
-        tr.dataset.menuId = m.id;
-
-        const labelTd = document.createElement('td');
-        labelTd.textContent = m.label + (Number(m.active) === 1 ? '' : '（非公開）');
-
-        const priceTd = document.createElement('td');
-        priceTd.textContent = m.price != null ? `¥${Number(m.price).toLocaleString()}` : '未設定';
-
-        const durationTd = document.createElement('td');
-        durationTd.textContent = `${m.duration_minutes || 60}分`;
-
-        const enabledTd = document.createElement('td');
-        const enabledCheck = document.createElement('input');
-        enabledCheck.type = 'checkbox';
-        enabledCheck.className = 'staff-menu-enabled';
-        enabledCheck.checked = !o || Number(o.enabled) !== 0;
-        enabledTd.appendChild(enabledCheck);
-
-        const overrideTd = document.createElement('td');
-        const overrideInput = document.createElement('input');
-        overrideInput.type = 'number';
-        overrideInput.min = '0';
-        overrideInput.className = 'menu-table-input staff-menu-override';
-        overrideInput.placeholder = '共通価格のまま';
-        overrideInput.value = o && o.price_override != null ? o.price_override : '';
-        overrideTd.appendChild(overrideInput);
-
-        tr.append(labelTd, priceTd, durationTd, enabledTd, overrideTd);
-        tbody.appendChild(tr);
-      });
-    } catch (err) {
-      message.hidden = false;
-      message.textContent = '読み込みに失敗しました。';
-    }
-  }
-
-  async function saveStaffMenuAdjust() {
-    const select = document.getElementById('staff-menu-select');
-    const tbody = document.getElementById('staff-menu-body');
-    const message = document.getElementById('staff-menu-message');
-    const staffId = select.value;
-    if (!staffId) return;
-
-    const overrides = Array.from(tbody.querySelectorAll('tr')).map((tr) => {
-      const overrideInput = tr.querySelector('.staff-menu-override');
-      return {
-        menuId: tr.dataset.menuId,
-        enabled: tr.querySelector('.staff-menu-enabled').checked,
-        priceOverride: overrideInput.value === '' ? null : Number(overrideInput.value),
-      };
-    });
-
-    try {
-      const res = await fetch(`/api/admin/staff/${staffId}/menus`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ overrides }),
-      });
-      const data = await res.json();
-      message.hidden = false;
-      message.textContent = res.ok && data.ok ? '保存しました。' : '保存に失敗しました。';
-    } catch (err) {
-      message.hidden = false;
-      message.textContent = '通信エラーが発生しました。';
-    }
   }
 
   // ---------- スタッフの通知先メールアドレス ----------
@@ -1778,9 +1706,18 @@
   }
 
   async function initQuiz() {
-    const res = await fetch('/api/admin/menus');
-    const data = await res.json();
-    quizMenuCatalog = (data.menus || []).filter((m) => Number(m.active) === 1);
+    // メニューはスタッフごとに完全に独立しているため、選択肢の「おすすめメニュー」には
+    // 「メニュー名（担当スタッフ名）」の形で全スタッフぶんをまとめて表示する
+    const [menusRes, staffRes] = await Promise.all([fetch('/api/admin/menus'), fetch('/api/admin/staff')]);
+    const menusData = await menusRes.json();
+    const staffData = await staffRes.json();
+    const staffNameMap = new Map((staffData.staff || []).map((s) => [Number(s.id), s.name]));
+    quizMenuCatalog = (menusData.menus || [])
+      .filter((m) => Number(m.active) === 1 && m.staff_id != null)
+      .map((m) => ({
+        id: m.id,
+        label: `${m.label}（${staffNameMap.get(Number(m.staff_id)) || '担当不明'}）`,
+      }));
     await loadQuizQuestions();
 
     document.getElementById('quiz-question-add-form').addEventListener('submit', async (e) => {
@@ -2346,8 +2283,7 @@
   initScheduleView();
   initStaffSlots();
   initSettings();
-  initMenus();
-  initStaffMenuAdjust();
+  initStaffMenus();
   initStaffAccounts();
   initStaffEmails();
   loadCustomers();

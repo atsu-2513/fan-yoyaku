@@ -217,6 +217,13 @@ async function initSchema() {
         await client.execute(`ALTER TABLE menus ADD COLUMN duration_minutes INTEGER NOT NULL DEFAULT 60`);
       }
 
+      // メニューをスタッフごとに完全に独立させるための列。NULLの行は旧・共通メニュー
+      // (今後は新規に使わないが、過去の予約のメニュー名表示のためだけに残す)
+      const hasMenuStaffId = menuColumns.rows.some((c) => c.name === 'staff_id');
+      if (!hasMenuStaffId) {
+        await client.execute(`ALTER TABLE menus ADD COLUMN staff_id INTEGER`);
+      }
+
       // 店販商品のカテゴリ(分類)。既存の商品は「未分類」のまま(NULL)扱いにする
       const shopProductColumns = await client.execute(`PRAGMA table_info(shop_products)`);
       const hasCategoryId = shopProductColumns.rows.some((c) => c.name === 'category_id');
@@ -265,6 +272,52 @@ async function initSchema() {
             sql: `INSERT INTO menus (id, label, price, duration_minutes, active, sort_order, created_at) VALUES (?, ?, ?, ?, 1, ?, ?)`,
             args: [m.id, m.label, m.price, m.duration, m.sort, new Date().toISOString()],
           });
+        }
+      }
+
+      // メニューを「共通カタログ + スタッフ調整」から「スタッフごとに完全に独立」へ移行する処理。
+      // まだ自分名義のメニューを1件も持っていないスタッフにだけ、これまでの共通メニュー
+      // (このスタッフ向けの価格調整・非表示設定があればそれを反映した内容)をコピーして
+      // 初期メニューとする。すでに自分名義のメニューを1件でも持っているスタッフ
+      // (非公開にしたメニューしかない場合も含む)には何もしない。
+      // 注意: この判定はスタッフ単位であり、サーバー起動のたびに毎回実行される。
+      // そのため、今後新しく増えるスタッフも、まだ自分のメニューを1件も追加していない間は
+      // ここで初期メニュー一式(旧共通メニューの内容)が自動的にコピーされる
+      // (＝真っ白な状態からではなく、テンプレートを元に編集していく形になる)。
+      const allStaffForMenuMigration = await client.execute(`SELECT id FROM staff`);
+      for (const staffRow of allStaffForMenuMigration.rows) {
+        const sid = staffRow.id;
+        const ownedCountResult = await client.execute({
+          sql: `SELECT COUNT(*) AS c FROM menus WHERE staff_id = ?`,
+          args: [sid],
+        });
+        if (Number(ownedCountResult.rows[0].c) > 0) continue;
+
+        const legacyMenusResult = await client.execute(
+          `SELECT * FROM menus WHERE staff_id IS NULL AND active = 1 ORDER BY sort_order ASC, id ASC`
+        );
+        if (legacyMenusResult.rows.length === 0) continue;
+
+        const overridesResult = await client.execute({
+          sql: `SELECT * FROM staff_menu_settings WHERE staff_id = ?`,
+          args: [sid],
+        });
+        const overrideMap = new Map(overridesResult.rows.map((o) => [o.menu_id, o]));
+
+        let sort = 0;
+        for (const m of legacyMenusResult.rows) {
+          const override = overrideMap.get(m.id);
+          if (override && Number(override.enabled) === 0) continue; // このスタッフには「提供しない」設定だったメニューは引き継がない
+          const price =
+            override && override.price_override !== null && override.price_override !== undefined
+              ? override.price_override
+              : m.price;
+          const newId = `menu_${sid}_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}_${sort}`;
+          await client.execute({
+            sql: `INSERT INTO menus (id, label, price, duration_minutes, active, sort_order, staff_id, created_at) VALUES (?, ?, ?, ?, 1, ?, ?, ?)`,
+            args: [newId, m.label, price, m.duration_minutes, sort, sid, new Date().toISOString()],
+          });
+          sort += 1;
         }
       }
 
@@ -491,22 +544,45 @@ async function setStaffMenuOverride(staffId, menuId, { enabled, priceOverride })
   });
 }
 
-// お客様の予約フォーム用: 指名したスタッフに実際に提供されるメニュー(価格込み)
+// お客様の予約フォーム用: 指名したスタッフ自身が管理している、公開中のメニュー(価格込み)
 async function listMenusForStaff(staffId) {
   await ready();
-  const menus = await listMenus();
-  const overrides = await getStaffMenuOverrides(staffId);
-  const overrideMap = new Map(overrides.map((o) => [o.menu_id, o]));
-  return menus
-    .filter((m) => {
-      const o = overrideMap.get(m.id);
-      return !o || Number(o.enabled) !== 0;
-    })
-    .map((m) => {
-      const o = overrideMap.get(m.id);
-      const price = o && o.price_override !== null && o.price_override !== undefined ? o.price_override : m.price;
-      return { id: m.id, label: m.label, price, durationMinutes: m.duration_minutes || 60 };
-    });
+  const result = await client.execute({
+    sql: `SELECT * FROM menus WHERE staff_id = ? AND active = 1 ORDER BY sort_order ASC, id ASC`,
+    args: [staffId],
+  });
+  return result.rows.map((m) => ({
+    id: m.id,
+    label: m.label,
+    price: m.price,
+    durationMinutes: m.duration_minutes || 60,
+  }));
+}
+
+// スタッフ本人の管理画面・オーナーの管理画面用: そのスタッフ名義のメニュー全件(非公開のものも含む)
+async function listAllMenusForStaff(staffId) {
+  await ready();
+  const result = await client.execute({
+    sql: `SELECT * FROM menus WHERE staff_id = ? ORDER BY sort_order ASC, id ASC`,
+    args: [staffId],
+  });
+  return result.rows;
+}
+
+// スタッフ本人が自分名義の新しいメニューを追加する(オーナーが代理で追加する場合も同じ関数を使う)
+async function createMenuForStaff(staffId, { label, price, durationMinutes }) {
+  await ready();
+  const id = `menu_${staffId}_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
+  const maxSort = await client.execute({
+    sql: `SELECT COALESCE(MAX(sort_order), -1) AS m FROM menus WHERE staff_id = ?`,
+    args: [staffId],
+  });
+  const sortOrder = Number(maxSort.rows[0].m) + 1;
+  await client.execute({
+    sql: `INSERT INTO menus (id, label, price, duration_minutes, active, sort_order, staff_id, created_at) VALUES (?, ?, ?, ?, 1, ?, ?, ?)`,
+    args: [id, label, price, durationMinutes || 60, sortOrder, staffId, new Date().toISOString()],
+  });
+  return getMenuById(id);
 }
 
 // ---------- スタッフの空き時間(自分で解放した枠) ----------
@@ -1310,6 +1386,8 @@ module.exports = {
   getStaffMenuOverrides,
   setStaffMenuOverride,
   listMenusForStaff,
+  listAllMenusForStaff,
+  createMenuForStaff,
   openSlot,
   closeSlot,
   getOpenSlotsForStaff,

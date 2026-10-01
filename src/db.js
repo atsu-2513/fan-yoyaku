@@ -35,6 +35,14 @@ async function initSchema() {
             created_at TEXT NOT NULL,
             expires_at TEXT NOT NULL
           )`,
+          // LINEで「変更」を選び、どのご予約か選んだ直後の状態。
+          // 次に送られてくるテキストメッセージを、そのご予約への「変更希望メッセージ」として扱うために使う
+          // (1ユーザーにつき1件だけ覚えておけばよいので line_user_id を主キーにしている)
+          `CREATE TABLE IF NOT EXISTS pending_change_requests (
+            line_user_id TEXT PRIMARY KEY,
+            reservation_id INTEGER NOT NULL,
+            created_at TEXT NOT NULL
+          )`,
           `CREATE TABLE IF NOT EXISTS reservations (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             line_user_id TEXT NOT NULL,
@@ -201,6 +209,16 @@ async function initSchema() {
       const hasReplySentAt = columns.rows.some((c) => c.name === 'reply_sent_at');
       if (!hasReplySentAt) {
         await client.execute(`ALTER TABLE reservations ADD COLUMN reply_sent_at TEXT`);
+      }
+
+      // お客様がLINEから「変更したい」と伝えてきたときの、自由記入のメッセージ(日時の希望など)
+      const hasChangeRequestMessage = columns.rows.some((c) => c.name === 'change_request_message');
+      if (!hasChangeRequestMessage) {
+        await client.execute(`ALTER TABLE reservations ADD COLUMN change_request_message TEXT`);
+      }
+      const hasChangeRequestAt = columns.rows.some((c) => c.name === 'change_request_at');
+      if (!hasChangeRequestAt) {
+        await client.execute(`ALTER TABLE reservations ADD COLUMN change_request_at TEXT`);
       }
 
       // スタッフのメール通知先アドレス
@@ -890,6 +908,55 @@ async function getReservation(id) {
   return result.rows[0] || null;
 }
 
+const CHANGE_REQUEST_PENDING_TTL_MINUTES = 15;
+
+// LINEで「変更」→どのご予約かを選んだ直後に、その選択を覚えておく
+// (次に届くテキストメッセージを、そのご予約への変更希望メッセージとして扱うため)
+async function setPendingChangeRequest(lineUserId, reservationId) {
+  await ready();
+  await client.execute({
+    sql: `INSERT INTO pending_change_requests (line_user_id, reservation_id, created_at)
+          VALUES (?, ?, ?)
+          ON CONFLICT(line_user_id) DO UPDATE SET reservation_id = excluded.reservation_id, created_at = excluded.created_at`,
+    args: [lineUserId, reservationId, new Date().toISOString()],
+  });
+}
+
+// 覚えている選択を取り出す(一定時間が経っていたら、取り違い防止のため無効として扱う)
+async function getPendingChangeRequest(lineUserId) {
+  await ready();
+  const result = await client.execute({
+    sql: `SELECT * FROM pending_change_requests WHERE line_user_id = ?`,
+    args: [lineUserId],
+  });
+  const row = result.rows[0];
+  if (!row) return null;
+  const ageMs = Date.now() - new Date(row.created_at).getTime();
+  if (ageMs > CHANGE_REQUEST_PENDING_TTL_MINUTES * 60 * 1000) {
+    await clearPendingChangeRequest(lineUserId);
+    return null;
+  }
+  return row;
+}
+
+async function clearPendingChangeRequest(lineUserId) {
+  await ready();
+  await client.execute({
+    sql: `DELETE FROM pending_change_requests WHERE line_user_id = ?`,
+    args: [lineUserId],
+  });
+}
+
+// お客様からの「変更希望」メッセージをご予約に記録する(担当スタッフ・オーナーの画面に表示するため)
+async function recordChangeRequest(reservationId, message) {
+  await ready();
+  await client.execute({
+    sql: `UPDATE reservations SET change_request_message = ?, change_request_at = ? WHERE id = ?`,
+    args: [message, new Date().toISOString(), reservationId],
+  });
+  return getReservation(reservationId);
+}
+
 async function confirmReservation(id, replyMessage) {
   await ready();
   if (replyMessage) {
@@ -1430,6 +1497,10 @@ module.exports = {
   confirmReservation,
   cancelReservation,
   listUpcomingReservationsForUser,
+  setPendingChangeRequest,
+  getPendingChangeRequest,
+  clearPendingChangeRequest,
+  recordChangeRequest,
   listConfirmedReservationsForDate,
   markReminderSent,
   copyOpenSlotsToDates,

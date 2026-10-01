@@ -426,6 +426,13 @@
     } else {
       consultTd.textContent = '—';
     }
+    if (r.change_request_message) {
+      const cr = document.createElement('div');
+      cr.className = 'change-request-note';
+      cr.style.whiteSpace = 'pre-wrap';
+      cr.textContent = `変更希望: ${r.change_request_message}`;
+      consultTd.appendChild(cr);
+    }
 
     const nameTd = document.createElement('td');
     nameTd.textContent = r.name;
@@ -805,6 +812,13 @@
         rp.textContent = `返信: ${r.reply_message}`;
         box.appendChild(rp);
       }
+    }
+    if (r.change_request_message) {
+      const cr = document.createElement('p');
+      cr.className = 'modal-box__row change-request-note';
+      cr.style.whiteSpace = 'pre-wrap';
+      cr.textContent = `変更希望: ${r.change_request_message}`;
+      box.appendChild(cr);
     }
 
     const actions = document.createElement('div');

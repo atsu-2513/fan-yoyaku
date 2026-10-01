@@ -215,6 +215,13 @@ input {
   resize: vertical;
 }
 .reply-sent { font-size: 12px; color: var(--muted); white-space: pre-wrap; }
+.change-request-note {
+  font-size: 12px;
+  color: var(--pending);
+  font-weight: bold;
+  white-space: pre-wrap;
+  margin-top: 4px;
+}
 .customer-add-form {
   display: flex;
   flex-direction: row;

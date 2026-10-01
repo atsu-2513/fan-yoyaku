@@ -8,8 +8,13 @@ const {
   getReservation,
   cancelReservation,
   getStaffById,
+  setPendingChangeRequest,
+  getPendingChangeRequest,
+  clearPendingChangeRequest,
+  recordChangeRequest,
 } = require('../db');
 const { menuLabel, todayJST } = require('../businessHours');
+const { sendMail } = require('../mail');
 
 const router = express.Router();
 
@@ -46,6 +51,8 @@ async function handleEvent(event) {
       return;
     }
 
+    await clearPendingChangeRequest(userId);
+
     const token = await createBookingToken(userId);
     const url = `${process.env.BASE_URL}/booking/?token=${token}`;
 
@@ -66,6 +73,11 @@ async function handleEvent(event) {
     return;
   }
 
+  if (text === '変更') {
+    await handleChangeRequestStart(event, userId);
+    return;
+  }
+
   if (text === '店販') {
     if (!userId) {
       await client.replyMessage({
@@ -74,6 +86,8 @@ async function handleEvent(event) {
       });
       return;
     }
+
+    await clearPendingChangeRequest(userId);
 
     const token = await createShopToken(userId);
     const url = `${process.env.BASE_URL}/shop/?token=${token}`;
@@ -90,12 +104,21 @@ async function handleEvent(event) {
     return;
   }
 
+  // 直前に「変更」→対象のご予約を選んでいた場合、このメッセージをその変更希望として扱う
+  if (userId) {
+    const pending = await getPendingChangeRequest(userId);
+    if (pending) {
+      await handleChangeRequestMessage(event, userId, pending, text);
+      return;
+    }
+  }
+
   await client.replyMessage({
     replyToken: event.replyToken,
     messages: [
       {
         type: 'text',
-        text: 'ご予約は「予約」、ご予約のキャンセルは「キャンセル」、店販商品のご案内は「店販」と送信してください。',
+        text: 'ご予約は「予約」、ご予約のキャンセルは「キャンセル」、ご予約の変更のご希望は「変更」、店販商品のご案内は「店販」と送信してください。',
       },
     ],
   });
@@ -104,6 +127,8 @@ async function handleEvent(event) {
 // 「キャンセル」受信時: そのお客様の今日以降の予約を一覧にして選んでもらう
 async function handleCancelRequest(event, userId) {
   if (!userId) return;
+
+  await clearPendingChangeRequest(userId);
 
   const reservations = await listUpcomingReservationsForUser(userId, todayJST());
   if (reservations.length === 0) {
@@ -136,13 +161,54 @@ async function handleCancelRequest(event, userId) {
   });
 }
 
-// キャンセル対象の予約が選ばれたとき(postbackイベント)
+// 「変更」受信時: そのお客様の今日以降の予約を一覧にして選んでもらう
+async function handleChangeRequestStart(event, userId) {
+  if (!userId) return;
+
+  const reservations = await listUpcomingReservationsForUser(userId, todayJST());
+  if (reservations.length === 0) {
+    await client.replyMessage({
+      replyToken: event.replyToken,
+      messages: [{ type: 'text', text: '現在、変更をご希望いただけるご予約がありません。' }],
+    });
+    return;
+  }
+
+  const items = reservations.slice(0, 13).map((r) => ({
+    type: 'action',
+    action: {
+      type: 'postback',
+      label: `${r.date} ${r.time}`,
+      data: `changerequest:${r.id}`,
+      displayText: `${r.date} ${r.time} のご予約の変更を希望`,
+    },
+  }));
+
+  await client.replyMessage({
+    replyToken: event.replyToken,
+    messages: [
+      {
+        type: 'text',
+        text: '変更をご希望のご予約を選んでください。',
+        quickReply: { items },
+      },
+    ],
+  });
+}
+
+// postbackイベントの振り分け(キャンセル対象の選択 / 変更希望対象の選択)
 async function handlePostback(event) {
   const data = event.postback && event.postback.data;
-  if (!data || !data.startsWith('cancel:')) return;
+  if (!data) return;
+  if (data.startsWith('changerequest:')) {
+    return handleChangeRequestSelected(event, data);
+  }
+  if (!data.startsWith('cancel:')) return;
 
   const id = Number(data.slice('cancel:'.length));
   const userId = event.source.userId;
+
+  if (userId) await clearPendingChangeRequest(userId);
 
   const reservation = await getReservation(id);
   if (!reservation || reservation.line_user_id !== userId) {
@@ -174,6 +240,91 @@ async function handlePostback(event) {
           (staff ? `担当: ${staff.name}\n` : '') +
           `メニュー: ${await menuLabel(cancelled.menu)}\n\n` +
           `またのご利用をお待ちしております。`,
+      },
+    ],
+  });
+}
+
+// 変更したいご予約が選ばれたとき(postbackイベント): 次のメッセージを変更希望として待ち受ける
+async function handleChangeRequestSelected(event, data) {
+  const id = Number(data.slice('changerequest:'.length));
+  const userId = event.source.userId;
+
+  const reservation = await getReservation(id);
+  if (!reservation || reservation.line_user_id !== userId) {
+    await client.replyMessage({
+      replyToken: event.replyToken,
+      messages: [{ type: 'text', text: 'ご予約が見つかりませんでした。' }],
+    });
+    return;
+  }
+  if (reservation.status === 'cancelled') {
+    await client.replyMessage({
+      replyToken: event.replyToken,
+      messages: [{ type: 'text', text: 'このご予約はすでにキャンセルされています。' }],
+    });
+    return;
+  }
+
+  await setPendingChangeRequest(userId, id);
+
+  await client.replyMessage({
+    replyToken: event.replyToken,
+    messages: [
+      {
+        type: 'text',
+        text:
+          `${reservation.date} ${reservation.time} のご予約ですね。\n` +
+          `ご希望の変更内容（ご希望の日時やご要望など）を、メッセージで送ってください。`,
+      },
+    ],
+  });
+}
+
+// 「変更」→ご予約選択のあとに届いたテキストメッセージを、変更希望として担当スタッフに伝える
+async function handleChangeRequestMessage(event, userId, pending, text) {
+  await clearPendingChangeRequest(userId);
+
+  const reservation = await getReservation(pending.reservation_id);
+  if (!reservation || reservation.line_user_id !== userId || reservation.status === 'cancelled') {
+    await client.replyMessage({
+      replyToken: event.replyToken,
+      messages: [{ type: 'text', text: 'ご希望のご予約が見つかりませんでした。お手数ですが「変更」から選び直してください。' }],
+    });
+    return;
+  }
+
+  const message = text.slice(0, 500);
+  const updated = await recordChangeRequest(reservation.id, message);
+  const staff = updated.staff_id ? await getStaffById(updated.staff_id) : null;
+
+  try {
+    const recipients = [staff && staff.email, process.env.OWNER_EMAIL].filter(Boolean);
+    if (recipients.length) {
+      await sendMail({
+        to: recipients,
+        subject: `【予約変更のご希望】${updated.date} ${updated.time} ${staff ? staff.name + '様指名' : ''}`,
+        text:
+          `ご予約の変更をご希望のメッセージが届きました。\n\n` +
+          `現在のご予約日時: ${updated.date} ${updated.time}\n` +
+          (staff ? `担当: ${staff.name}\n` : '') +
+          `メニュー: ${await menuLabel(updated.menu)}\n` +
+          `お名前: ${updated.name}\n` +
+          `電話番号: ${updated.phone}\n\n` +
+          `ご希望の内容:\n${message}\n` +
+          (process.env.BASE_URL ? `\n管理画面で確認: ${process.env.BASE_URL}/admin/` : ''),
+      });
+    }
+  } catch (err) {
+    console.error('メール通知(予約変更希望)の送信に失敗しました:', err);
+  }
+
+  await client.replyMessage({
+    replyToken: event.replyToken,
+    messages: [
+      {
+        type: 'text',
+        text: '変更のご希望を担当スタッフにお伝えしました。確認でき次第、担当からご連絡いたします。',
       },
     ],
   });

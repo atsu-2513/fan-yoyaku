@@ -18,6 +18,9 @@ const { sendMail } = require('../mail');
 
 const router = express.Router();
 
+// Instagramアカウントの固定URL(「Instagram」「インスタ」と送信されたときの案内用)
+const INSTAGRAM_URL = 'https://www.instagram.com/hairsalon_fan/?hl=ja';
+
 router.post('/webhook', line.middleware(config), async (req, res) => {
   // LINEプラットフォームには即座に200を返す
   res.sendStatus(200);
@@ -104,6 +107,21 @@ async function handleEvent(event) {
     return;
   }
 
+  if (text.toLowerCase() === 'instagram' || text === 'インスタ') {
+    if (userId) await clearPendingChangeRequest(userId);
+
+    await client.replyMessage({
+      replyToken: event.replyToken,
+      messages: [
+        {
+          type: 'text',
+          text: `Instagramはこちらです📷\n${INSTAGRAM_URL}`,
+        },
+      ],
+    });
+    return;
+  }
+
   // 直前に「変更」→対象のご予約を選んでいた場合、このメッセージをその変更希望として扱う
   if (userId) {
     const pending = await getPendingChangeRequest(userId);
@@ -118,7 +136,7 @@ async function handleEvent(event) {
     messages: [
       {
         type: 'text',
-        text: 'ご予約は「予約」、ご予約のキャンセルは「キャンセル」、ご予約の変更のご希望は「変更」、店販商品のご案内は「店販」と送信してください。',
+        text: 'ご予約は「予約」、ご予約のキャンセルは「キャンセル」、ご予約の変更のご希望は「変更」、店販商品のご案内は「店販」、Instagramのご案内は「Instagram」と送信してください。',
       },
     ],
   });
